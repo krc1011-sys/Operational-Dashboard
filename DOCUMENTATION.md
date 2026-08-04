@@ -4,7 +4,7 @@
 This file records how the spec has actually been built: what exists, how to run it,
 what was decided during the build, and what is still open.
 
-Last updated: **M0 complete**.
+Last updated: **M1 complete**.
 
 ---
 
@@ -66,7 +66,7 @@ Run the tests with `php artisan test`.
 | Milestone | What it delivers | Status |
 |---|---|---|
 | **M0** | Permission matrix aligned to §O, launch upload lockdown, money PIN gate | ✅ Done |
-| **M1** | Full data model / migrations | ⬜ Not started |
+| **M1** | Full data model / migrations | ✅ Done |
 | **M2** | Upload framework + parser core | ⬜ Not started |
 | **M3** | Amazon ingest — **checkpoint, needs real sample files** | ⬜ Not started |
 | M4 | Reconciliation engine (fill rate, shortfall, turnaround) | ⬜ |
@@ -147,7 +147,68 @@ by accident. Full suite: 35 passing.
 
 ---
 
-## 5. Decisions made during the build
+## 5. M1 — Data model (done)
+
+### 5.1 The tables
+
+Ten tables, replacing the six Phase-0 sketch tables (which were empty and have been
+dropped — their migration files are deleted, so a fresh install never recreates them).
+
+| Table | One row = | Key |
+|---|---|---|
+| `products` | One physical product | `company_product_code` (BD#####) |
+| `product_identifiers` | An ASIN or NIN, pointing at a product | `(marketplace, sku_id)` |
+| `purchase_orders` | One PO | `(marketplace, po_number)` |
+| `po_lines` | One PO × SKU line — **the spine** | `(marketplace, po_number, sku_id)` |
+| `deliveries` | One delivery | `(marketplace, delivery_key)` — the ASN |
+| `shipment_lines` | One packing/picking list row | not unique — cartons split |
+| `cancellations` | One cancelled PO × SKU | `(marketplace, po_number, sku_id)` |
+| `sellout_rows` | One ASIN's sell-out for a period | `(marketplace, sku_id, period)` |
+| `dfs_orders` | One DFS order line | `(order_id, sku_id)` |
+| `source_files` | One upload | — |
+
+Every fact table stores its raw `(marketplace, sku_id)` exactly as the file gave it,
+plus a **nullable** `product_id`. That nullability is the design decision that makes §K
+work: a packing list for a PO we haven't loaded yet, or a SKU the catalog doesn't know,
+is stored and flagged — never dropped — and links up later.
+
+### 5.2 How the blueprint's rules are encoded
+
+- **`po_lines.qty_cancelled_po_file`** exists but is documented in the migration as
+  read-only. Netting comes only from `cancellations` (§G).
+- **`cancellations.resolution`** carries the deliver-anyway decision, with
+  `qty_honoured` and `qty_delivered_anyway` split out so a partly-shipped line nets
+  correctly and still raises the chargeback flag.
+- **`deliveries.planned_date`** (the banner "Shipment Date") is separate from
+  `delivered_on` (the real date), because the banner date is provisional and no hard
+  logic may hang off it (§K).
+- **`deliveries.delivery_key`** is the ASN for Amazon and a generated stand-in for Noon,
+  which has no ASN in the file (§Q). One table serves both.
+- **Cached columns** (`qty_booked`, `qty_shipped`, `fill_rate_pct`, `line_state`,
+  turnaround dates, delivery totals) are written by the M4 engine. The *definitions*
+  live as `compute*()` methods on the models, so the engine and the screens cannot drift.
+
+### 5.3 Type-safe enums
+
+`Marketplace` (identity: amazon/noon) · `Channel` (reporting: amazon_retail /
+amazon_dfs / noon_retail) · `Stage` (interim/final) · `UploadType` (the §J dropdown,
+carrying each type's permission and freshness cadence) · `CancellationResolution` ·
+`SourceFileStatus`.
+
+Marketplace and Channel are deliberately different things: Amazon Retail and Amazon DFS
+share one identity namespace (both use ASINs) but are two channels in every report.
+
+### 5.4 Tests
+
+`DataModelTest` runs the blueprint's own verified figures through the schema: the §E
+worked example (2,000 accepted, four finals totalling 1,980 → 99%), the §L DXB3
+shortfall (14,240.95 → 13,764.59 = −476.36), carton splitting, unmatched-line
+reconciliation, the deliver-anyway decision trigger, and Amazon/Noon key differences.
+Full suite: **48 passing**.
+
+---
+
+## 6. Decisions made during the build
 
 Recorded here so they are not re-litigated. Anything marked **⚠ assumption** was not
 specified in the blueprint and should be confirmed.
@@ -168,10 +229,27 @@ specified in the blueprint and should be confirmed.
 5. **The PIN is a shared config value, not per-user.** §S says "Admin-only + PIN/password"
    without specifying per-user PINs. A shared PIN is simpler and matches the wording;
    per-user PINs can be added later without changing the middleware's shape.
+6. **The Phase-0 sketch tables were dropped, not migrated.** They held no real data, and
+   keeping them would have meant maintaining two versions of the same concepts. Their
+   migration files are deleted so a fresh install never creates them.
+7. **`manual_overrides` was removed.** It existed in the sketch, was empty, and appears
+   nowhere in the blueprint. The manual entries the blueprint *does* call for — the Noon
+   delivery date (§Q) and pallet/carton counts (§D) — are now real columns on
+   `deliveries` / `purchase_orders`, each with an `is_manual` flag. If a general
+   "override any quantity" feature is wanted, say so and it comes back properly.
+8. **⚠ assumption — one cancellation row per PO × SKU, latest upload wins.** This mirrors
+   the §C PO upsert rule. If Amazon ever sends a second cancellation email that *adds*
+   to an earlier one for the same line, the second upload would replace rather than
+   accumulate. Worth confirming against how the emails actually arrive; the fix is a
+   one-line change to a unique index.
+9. **Derived money columns are stored as imported *and* recomputed.** The master sheet
+   ships with profit/margin already calculated. Those values are kept for cross-checking,
+   but §S says the app's own calc logic is the source of truth, so M6 recomputes them.
+   Any disagreement between the two is a useful data-quality signal.
 
 ---
 
-## 6. Open questions
+## 7. Open questions
 
 Carried forward from blueprint §H, plus what the build has raised.
 
@@ -179,13 +257,13 @@ Carried forward from blueprint §H, plus what the build has raised.
 |---|---|---|
 | H3 | Final fixed file templates / filenames | Being locked per parser as M2–M3 proceed |
 | H4 | DB column names vs migrations | **Resolved at M1** — the model is being rebuilt |
-| — | Assumptions 2–4 in §5 above | Awaiting confirmation, not blocking |
+| — | The ⚠ assumptions in §6 above | Awaiting confirmation, not blocking |
 | — | Sell-through benchmark for the sell-in/sell-out flag (§P) | Needed by M9 |
 | — | Weighted-average vs latest supplier cost (§S) | Deferred to Phase 3, as specified |
 
 ---
 
-## 7. Things worth knowing about the data
+## 8. Things worth knowing about the data
 
 Rules that are counter-intuitive and easy to get wrong — all from the blueprint,
 repeated here because they are the source of most potential bugs:
