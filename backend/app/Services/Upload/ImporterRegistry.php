@@ -3,6 +3,9 @@
 namespace App\Services\Upload;
 
 use App\Enums\UploadType;
+use App\Services\Import\AmazonCancellationImporter;
+use App\Services\Import\AmazonPackingListImporter;
+use App\Services\Import\AmazonPoImporter;
 
 /**
  * Maps an upload type to the parser that handles it.
@@ -14,9 +17,14 @@ class ImporterRegistry
 {
     /** @var array<string, class-string<Importer>> */
     private array $importers = [
-        // UploadType::AmazonPoBulk->value => AmazonPoImporter::class,   // M3
-        // UploadType::AmazonInterimPacking->value => PackingListImporter::class,  // M3
-        // ...
+        // M3 — Amazon
+        UploadType::AmazonPoBulk->value => AmazonPoImporter::class,
+        UploadType::AmazonPoSingle->value => AmazonPoImporter::class,
+        UploadType::AmazonInterimPacking->value => AmazonPackingListImporter::class,
+        UploadType::AmazonFinalPacking->value => AmazonPackingListImporter::class,
+        UploadType::AmazonCancellations->value => AmazonCancellationImporter::class,
+
+        // M8 — Noon, M9 — DFS and sell-out, M6 — master sheet.
     ];
 
     public function has(UploadType $type): bool

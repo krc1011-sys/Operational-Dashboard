@@ -4,7 +4,7 @@
 This file records how the spec has actually been built: what exists, how to run it,
 what was decided during the build, and what is still open.
 
-Last updated: **M2 complete — stopped at the M3 checkpoint, awaiting the real sample files.**
+Last updated: **M3 complete and verified against the real files.**
 
 ---
 
@@ -76,8 +76,8 @@ Run the tests with `php artisan test`.
 | **M0** | Permission matrix aligned to §O, launch upload lockdown, money PIN gate | ✅ Done |
 | **M1** | Full data model / migrations | ✅ Done |
 | **M2** | Upload framework + parser core | ✅ Done |
-| **M3** | Amazon ingest — **checkpoint, needs real sample files** | ⏸ Blocked on files |
-| M4 | Reconciliation engine (fill rate, shortfall, turnaround) | ⬜ |
+| **M3** | Amazon ingest — **checkpoint, verified on real files** | ✅ Done |
+| M4 | Reconciliation engine — turnaround, deliver-anyway workflow | ◐ Part built at M3 |
 | M5 | Core screens with self-serve filters | ⬜ |
 | M6 | Master grid + net-margin engine | ⬜ |
 | M7 | Money views — **checkpoint** | ⬜ |
@@ -280,7 +280,85 @@ Full suite: **81 passing**.
 
 ---
 
-## 7. Decisions made during the build
+## 7. M3 — Amazon ingest (done, verified on real files)
+
+### 7.1 The four parsers
+
+| Parser | Reads | Notes |
+|---|---|---|
+| `AmazonPoImporter` | Bulk `.xls` export **and** the single-PO `.xlsx` | One class; the differing column names are handled by header-name matching |
+| `AmazonPackingListImporter` | Interim **and** final packing lists | One class; stage comes from the dropdown |
+| `AmazonCancellationImporter` | The cancellations sheet | The only thing that nets |
+| `Reconciler` | — | Links out-of-order rows, computes the cached figures |
+
+### 7.2 Verifying against the real files
+
+```bash
+php artisan operon:verify-samples --dir=/workspaces/Operational-Dashboard --fresh
+```
+
+This imports through the **real upload pipeline** — same validation, same importers,
+same audit log as the web form — and prints actual-vs-expected for every figure the
+blueprint validated by hand. The sample files are git-ignored; the command is committed
+and simply does nothing if they are absent.
+
+**Result — every check passed:**
+
+| Check | Got | Expected |
+|---|---|---|
+| Bulk export: lines / POs / FCs | 126 / 10 / 7 | 126 / 10 / 7 |
+| Multi-delivery PO: ASINs | 87 | 87 |
+| Units accepted | 14,740 | 14,740 |
+| Units shipped across 8 deliveries | 14,117 | 14,117 |
+| **Fill rate** | **95.77%** | **95.77%** |
+| Packing lines with no matching PO ASIN | 0 | 0 |
+| Over-shipped ASINs | 0 | 0 |
+| Shortfall: ASINs / units | 3 / 623 | 3 / 623 |
+| ASN 22161389743 interim: units / rows / POs / carton-totals skipped | 468 / 85 / 5 / 11 | 468 / 85 / 5 / 11 |
+| ASN 22161964743 interim: units / rows / POs | 641 / 9 / 2 | 641 / 9 / 2 |
+| Shortfall values (both deliveries) | 595.25 / 476.36 AED | 595.25 / 476.36 AED |
+
+### 7.3 What the real files taught us
+
+Things confirmed or corrected against actual data, not assumed:
+
+- **Formula cells work as designed.** The Simple List is 100% formulas referencing the
+  hidden tab. Reading each cell's cached value returns the right numbers, so files
+  upload exactly as the tool produces them — no flattening, no paste-values.
+- **The final layout really does shift.** Interim: `A=PO · B=ASIN · C=Model · D=Title ·
+  E=Qty · F=Carton · G=Unit Cost`, banner in D1/D2. Final: everything moves right for
+  `C=Invoice Number`, banner moves to F1/F2, invoice total to I1/I2. Matching by header
+  name handles both with one parser; the banner is found by its label, not its cell.
+- **The single-PO file's PO number is genuinely absent** — no column, and the filename
+  is literally `PurchaseOrder.xlsx`. The upload form now has a PO-number box that
+  appears for that type; the filename is used when it does contain one.
+- **The cancellations mock's tab is `Sheet1`,** not "Cancellations". Both are accepted.
+- **Carton-total rows behave exactly as described** — 11 on the Aug-01 list, and
+  skipping them is the difference between 468 units and double-counting.
+- **Some deliveries have no stage in the filename** (`PACKING LIST_22183953643-AUG-25.xlsx`).
+  This is fine and by design: the stage comes from the dropdown (§J), never the filename.
+
+### 7.4 Two bugs the tests caught that the samples did not
+
+Worth recording, because both would have surfaced later in production:
+
+1. **A `static` cache in the PO importer leaked between imports** in the same process.
+   The verification run never noticed (each import was effectively first), but a second
+   import in one request or queue worker would have attached lines to a stale PO.
+   Now an instance property, reset per import.
+2. **A packing list with no "Invoice value" banner crashed the import.** Every real
+   sample happens to have one. Now it falls back to totalling the line values.
+
+### 7.5 Tests
+
+`AmazonImportTest` (20 tests) covers what the real samples cannot: cancellation netting
+(every cancellation in the sample set names a PO that was not supplied), the
+deliver-anyway decision trigger, re-upload behaviour, and the reconcile-later path.
+Full suite: **102 passing**.
+
+---
+
+## 8. Decisions made during the build
 
 Recorded here so they are not re-litigated. Anything marked **⚠ assumption** was not
 specified in the blueprint and should be confirmed.
@@ -318,63 +396,62 @@ specified in the blueprint and should be confirmed.
    ships with profit/margin already calculated. Those values are kept for cross-checking,
    but §S says the app's own calc logic is the source of truth, so M6 recomputes them.
    Any disagreement between the two is a useful data-quality signal.
+10. **A packing list is a snapshot, not an increment.** Re-uploading the same stage for
+    the same ASN replaces that stage's lines rather than adding to them. Interim and
+    final coexist on one delivery. Both covered by tests.
+11. **⚠ assumption — a cancellation that would claw back committed units nets *nothing*
+    until answered.** §G says the system stops and asks; it does not say whether the
+    safely-cancellable part should net in the meantime. Netting nothing was chosen so no
+    figure moves behind the user's back. The alternative — net the free part now, ask
+    about the rest — is a small change to `AmazonCancellationImporter::decide()`.
+12. **Sample data is git-ignored by pattern.** The root `.gitignore` excludes `*.xls`,
+    `*.xlsx`, `*.xlsm`, `*.csv` and `samples/` wholesale, because these files are real
+    purchase orders and costs and anything committed to git is permanent.
 
 ---
 
-## 8. Open questions
+## 9. Open questions
 
 Carried forward from blueprint §H, plus what the build has raised.
 
 | # | Question | Status |
 |---|---|---|
-| H3 | Final fixed file templates / filenames | Cancellations template **locked and generated**; the rest are read as-is and confirmed at M3 |
+| H3 | Final fixed file templates / filenames | **Resolved for Amazon at M3** — all four formats confirmed against real files; filenames stay informational |
 | H4 | DB column names vs migrations | **Resolved at M1** — the model was rebuilt |
-| — | The ⚠ assumptions in §7 above | Awaiting confirmation, not blocking |
-| — | **The real sample files** | **Blocks M3** — see below |
+| — | The ⚠ assumptions in §8 above | Awaiting confirmation, not blocking |
+| — | **Cancellation POs are from a different batch** | Netting unproven on real data — see §7.2 |
 | — | Sell-through benchmark for the sell-in/sell-out flag (§P) | Needed by M9 |
 | — | Weighted-average vs latest supplier cost (§S) | Deferred to Phase 3, as specified |
 
 ---
 
-## 9. The M3 checkpoint — what happens next
+## 10. What M4 needs next
 
-M3 writes the parsers that turn a validated file into rows: Amazon PO (both formats),
-interim and final packing lists, and cancellations. Everything they need is already
-built — the reader, the header matcher, the tables, the audit log. What is missing is
-**the real files**.
+M4 completes the reconciliation engine on top of what M3 built:
 
-### What to drop into the workspace
+- **Turnaround** — `first_shipped_on`, `completed_on`, `days_to_complete` against the
+  10-day benchmark, plus "X days and counting" while a PO is open.
+- **The deliver-anyway workflow** — a screen for the cancellations parked as
+  *needs decision*, writing `pulled_back` or `delivered_anyway` and raising the
+  chargeback flag.
+- **PO completion** — marking a PO complete when shipped ≥ net accepted, or the
+  remainder is cancelled.
 
-Put them anywhere in the repo (a `samples/` folder is ideal) and say the word:
+### Useful extra files, when convenient
 
-| File | Why it's needed |
+Not blocking, but each would let something be verified on real data rather than
+constructed data:
+
+| File | What it would prove |
 |---|---|
-| `POItemExport_*.xls` — a real bulk PO export | Confirm every column alias; the file is `.xls`, not `.xlsx` |
-| A single-PO `PurchaseOrder.xlsx` | The secondary format, which has no PO or FC column |
-| An **interim** packing list | Confirm the Simple List layout, the ASN banner, carton totals |
-| The **matching final** packing list (same ASN) | Confirm the shifted columns and the invoice number |
-| The cancellations mock (`Cancelled items_*.xlsx`) | Confirm the template matches what's actually pasted |
-
-Ideally the 8-ISA PO the blueprint already validated (≈AED 234k, 87 ASINs, 14,740
-accepted, 14,117 shipped, 95.77% fill). Reproducing that number end to end is the
-cleanest possible proof the engine is right.
-
-Sample files may contain real commercial data — they are business records, not code.
-Consider whether they belong in the git history before committing them; a
-`samples/` entry in `.gitignore` keeps them local to the Codespace if you'd rather.
-
-### What M3 will then verify
-
-- Every alias in `FileTypeRegistry` matches a real column name.
-- 126 lines / 10 POs / 7 FCs read out of the sample PO export, with no dropped rows.
-- DXB6 Aug-01 (ASN 22161389743): 5 POs, 85 item rows, 65 ASINs, **468 units**, with
-  **11 carton-total rows skipped**.
-- DXB3 Aug-02 (ASN 22161964743): 2 POs, 9 items, **641 units**.
-- The interim and final for one ASN link up, and their difference is the shortfall.
+| A cancellation sheet naming POs we hold | Netting on real data (§7.2) |
+| The bulk export covering `774FV9FB` / `77Z18X8Q` etc. | The 178 waiting packing lines linking up |
+| A PO with `Accepted < Requested` | Confirmation rate — every sample row is 100% |
+| The `Master_Products_Sheet.xlsx` | Needed for M6 anyway |
 
 ---
 
-## 10. Things worth knowing about the data
+## 11. Things worth knowing about the data
 
 Rules that are counter-intuitive and easy to get wrong — all from the blueprint,
 repeated here because they are the source of most potential bugs:

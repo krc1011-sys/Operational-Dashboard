@@ -1,0 +1,19 @@
+# ---------------------------------------------------------------------------
+# REAL BUSINESS DATA — NEVER COMMIT
+#
+# The sample files used to build and verify the parsers contain genuine purchase
+# orders, quantities, costs and invoice values. They stay local to the Codespace.
+# Anything committed to git is permanent and public in the history, so these
+# patterns are deliberately broad.
+# ---------------------------------------------------------------------------
+*.xls
+*.xlsx
+*.xlsm
+*.csv
+
+# The conventional place to keep them, ignored wholesale.
+/samples/
+/sample-data/
+
+# ...but the generated blank template is safe: it holds no data, only headers.
+!backend/tests/fixtures/*.xlsx

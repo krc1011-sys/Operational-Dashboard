@@ -24,9 +24,14 @@ class UploadService
         private readonly ImporterRegistry $importers,
     ) {}
 
-    public function handle(UploadedFile $file, UploadType $type, User $user): SourceFile
+    /**
+     * @param  array<string, mixed>  $context  extra facts the file itself cannot supply,
+     *                                         e.g. the PO number for a single-PO export
+     *                                         whose filename does not carry one (§C).
+     */
+    public function handle(UploadedFile $file, UploadType $type, User $user, array $context = []): SourceFile
     {
-        $sourceFile = $this->store($file, $type, $user);
+        $sourceFile = $this->store($file, $type, $user, $context);
 
         $path = Storage::disk('local')->path($sourceFile->stored_path);
 
@@ -43,11 +48,11 @@ class UploadService
 
         $sourceFile->update([
             'status' => SourceFileStatus::Validated,
-            'summary' => [
+            'summary' => array_merge($sourceFile->summary ?? [], [
                 'sheet' => $validation->sheetName,
                 'header_row' => $validation->headerRow,
                 'headers_found' => $validation->headers?->headers(),
-            ],
+            ]),
             'warnings' => $validation->warnings,
         ]);
 
@@ -58,11 +63,12 @@ class UploadService
      * Save the file and open its audit record. The content hash lets us spot the same
      * file being uploaded twice - common when someone re-forwards an email attachment.
      */
-    private function store(UploadedFile $file, UploadType $type, User $user): SourceFile
+    private function store(UploadedFile $file, UploadType $type, User $user, array $context = []): SourceFile
     {
         $path = $file->store('uploads/'.$type->value, 'local');
 
         return SourceFile::create([
+            'summary' => array_filter($context, fn ($v) => $v !== null && $v !== ''),
             'upload_type' => $type,
             'marketplace' => $type->marketplace(),
             'channel' => $type->channel(),
@@ -107,7 +113,11 @@ class UploadService
             'rows_skipped' => $result->rowsSkipped,
             'rows_unmatched' => $result->rowsUnmatched,
             'summary' => array_merge($sourceFile->summary ?? [], $result->summary),
-            'warnings' => array_merge($sourceFile->warnings ?? [], $result->warnings),
+            // Validation warnings are already stored; add the importer's own without
+            // repeating anything.
+            'warnings' => array_values(array_unique(
+                array_merge($sourceFile->warnings ?? [], $result->warnings)
+            )),
             'imported_at' => now(),
         ]);
 

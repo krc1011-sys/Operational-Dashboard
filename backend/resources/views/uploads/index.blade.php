@@ -53,6 +53,18 @@
                         </div>
                     @endforeach
 
+                    {{-- The single-PO export carries no PO column (§C). --}}
+                    <div x-show="type === '{{ \App\Enums\UploadType::AmazonPoSingle->value }}'" x-cloak>
+                        <x-input-label for="po_number" value="PO number (only if the filename doesn't contain it)" />
+                        <x-text-input id="po_number" name="po_number" type="text" class="mt-1 block w-full"
+                                      :value="old('po_number')" placeholder="e.g. 6QT4G44D" />
+                        <p class="text-xs text-gray-500 mt-1">
+                            This format has no PO column inside the file. If the filename is just
+                            <code>PurchaseOrder.xlsx</code>, type the PO number here.
+                        </p>
+                        <x-input-error :messages="$errors->get('po_number')" class="mt-2" />
+                    </div>
+
                     <div>
                         <x-input-label for="file" value="2. Choose the file" />
                         <input id="file" name="file" type="file" required

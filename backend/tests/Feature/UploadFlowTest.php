@@ -103,7 +103,7 @@ class UploadFlowTest extends TestCase
 
     // --- Uploading ----------------------------------------------------------
 
-    public function test_a_valid_file_is_stored_validated_and_audited(): void
+    public function test_a_valid_file_is_stored_imported_and_audited(): void
     {
         $admin = $this->user('Admin');
 
@@ -114,12 +114,27 @@ class UploadFlowTest extends TestCase
 
         $file = SourceFile::sole();
 
-        $this->assertSame(SourceFileStatus::Validated, $file->status);
+        $this->assertSame(SourceFileStatus::Imported, $file->status);
+        $this->assertSame(2, $file->rows_imported);
         $this->assertSame('POItemExport_2026-08-03.xlsx', $file->original_filename);
         $this->assertSame($admin->id, $file->uploaded_by);
         $this->assertSame('Line Items', data_get($file->summary, 'sheet'));
         $this->assertNotNull($file->content_hash);
+        $this->assertNotNull($file->imported_at);
         Storage::disk('local')->assertExists($file->stored_path);
+    }
+
+    /** Each warning is reported once, however many stages produced it. */
+    public function test_warnings_are_not_duplicated_between_validation_and_import(): void
+    {
+        $this->actingAs($this->user('Admin'))->post('/uploads', [
+            'upload_type' => UploadType::AmazonPoBulk->value,
+            'file' => $this->upload(FakeWorkbook::amazonPo(), 'POItemExport.xlsx'),
+        ]);
+
+        $warnings = SourceFile::sole()->warnings ?? [];
+
+        $this->assertSame(count($warnings), count(array_unique($warnings)));
     }
 
     /** The guardrail: a wrong file is rejected and NOTHING is written. */
@@ -151,18 +166,31 @@ class UploadFlowTest extends TestCase
             'file' => $this->upload(FakeWorkbook::amazonPo(), 'POItemExport_2026-08-03.xls', 'xls'),
         ])->assertRedirect();
 
-        $this->assertSame(SourceFileStatus::Validated, SourceFile::sole()->status);
+        $this->assertSame(SourceFileStatus::Imported, SourceFile::sole()->status);
     }
 
-    public function test_the_result_page_says_plainly_that_nothing_was_imported_yet(): void
+    /**
+     * File types whose parser is not built yet (Noon, DFS, sell-out, master sheet) still
+     * validate and store, and say plainly that nothing was written.
+     */
+    public function test_a_type_with_no_parser_yet_rests_at_validated(): void
     {
-        $this->actingAs($this->user('Admin'))->post('/uploads', [
-            'upload_type' => UploadType::AmazonPoBulk->value,
-            'file' => $this->upload(FakeWorkbook::amazonPo(), 'POItemExport.xlsx'),
+        $sellout = (new FakeWorkbook)->sheet('Sheet1', [
+            ['Viewing Range: 2026-07-01 to 2026-07-31', 'Currency: AED'],
+            ['ASIN', 'Product Title', 'Brand', 'Shipped Revenue', 'Shipped Units', 'Customer Returns'],
+            ['B08TEST0001', 'Test product', 'TestBrand', 4410.0, 180, 2],
         ]);
 
+        $this->actingAs($this->user('Admin'))->post('/uploads', [
+            'upload_type' => UploadType::AmazonSellout->value,
+            'file' => $this->upload($sellout, 'Sales_ASIN_Sourcing_Retail_x.xlsx'),
+        ]);
+
+        $file = SourceFile::sole();
+        $this->assertSame(SourceFileStatus::Validated, $file->status);
+
         $this->actingAs($this->user('Admin'))
-            ->get(route('uploads.show', SourceFile::sole()))
+            ->get(route('uploads.show', $file))
             ->assertOk()
             ->assertSee('Nothing has been imported yet');
     }

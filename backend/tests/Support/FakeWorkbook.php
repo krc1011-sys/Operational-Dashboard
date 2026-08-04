@@ -89,6 +89,58 @@ class FakeWorkbook
             ]);
     }
 
+    /**
+     * The single-PO export: no PO column, no Ship-to, and the differing header names
+     * the real file uses ("Quantity Requested", not "Requested quantity").
+     */
+    public static function singlePo(array $lines = [['B08TEST0001', 200, 180]]): self
+    {
+        $rows = [[
+            'ASIN', 'External Id', 'External Id Type', 'Model Number', 'Title',
+            'Expected date', 'Quantity Requested', 'Accepted quantity', 'Unit Cost',
+        ]];
+
+        foreach ($lines as [$asin, $requested, $accepted]) {
+            $rows[] = [$asin, '0634562947130', 'UPC', '0634562947130', 'Test product',
+                '08/20/2026', $requested, $accepted, 10.0];
+        }
+
+        return (new self)->sheet('Purchase Order', $rows);
+    }
+
+    /**
+     * The FINAL packing-list layout: every column shifted right to make room for the
+     * invoice number, and the banner moved from D1/D2 to F1/F2. Same header NAMES,
+     * which is the whole point of matching by name.
+     */
+    public static function packingListFinal(string $shipmentName = '22161964743-Aug-02'): self
+    {
+        return (new self)->sheet('Simple List', [
+            [null, null, null, null, null, 'Shipment Name: '.$shipmentName, null, null, 'Invoice value'],
+            [null, null, null, null, null, 'Shipment Date: 03 Aug 2026 04:00 PM', null, null, 1590.0],
+            [],
+            ['PO', null, 'Invoice Number', 'ASIN', 'Model Number', 'Title', 'Qty', 'Carton', 'Unit Cost',
+                'Match key', 'Lookup row', 'Line Value'],
+            ['774FV9FB', 'BD-3269-', 'BD-3269-774FV9FB', 'B08TEST0001', '0634562947130',
+                'Test product one', 90, '1-2', 10.0, '634562947130', 413, 900.0],
+            ['774FV9FB', 'BD-3269-', 'BD-3269-774FV9FB', 'B08TEST0002', '0634562947131',
+                'Test product two', 60, '3', 11.5, '634562947131', 175, 690.0],
+        ]);
+    }
+
+    /** The cancellations template, as the team pastes it (tab literally "Sheet1"). */
+    public static function cancellations(array $rows = [['774FV9FB', 'B08TEST0001', 180, 20]]): self
+    {
+        $sheet = [['PO Number', 'ASIN', 'External ID', 'Description',
+            'Quantity Confirmed', 'Quantity Cancelled']];
+
+        foreach ($rows as [$po, $asin, $confirmed, $cancelled]) {
+            $sheet[] = [$po, $asin, '0634562947130', 'Test product', $confirmed, $cancelled];
+        }
+
+        return (new self)->sheet('Sheet1', $sheet);
+    }
+
     /** A plausible interim packing list: banner rows, header on row 4, a carton total. */
     public static function packingList(): self
     {

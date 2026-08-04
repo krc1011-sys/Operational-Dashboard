@@ -152,7 +152,9 @@ class FileTypeRegistry
             new FileTypeDefinition(
                 type: UploadType::AmazonCancellations,
                 extensions: ['xlsx', 'xls'],
-                sheetCandidates: ['Cancellations'],
+                // The generated template names its tab "Cancellations"; the mock the team
+                // currently pastes into is a plain "Sheet1". Both are accepted.
+                sheetCandidates: ['Cancellations', 'Sheet1'],
                 headerRowHint: 1,
                 requiredHeaders: [
                     'PO Number' => ['po number', 'po'],

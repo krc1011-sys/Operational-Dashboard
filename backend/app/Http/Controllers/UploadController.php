@@ -48,6 +48,8 @@ class UploadController extends Controller
         $validated = $request->validate([
             'upload_type' => ['required', Rule::in(array_keys($allowed))],
             'file' => ['required', 'file', 'max:51200'], // 50 MB
+            // The single-PO export has no PO column, so it may need to be typed in (§C).
+            'po_number' => ['nullable', 'string', 'max:64'],
         ], [
             'upload_type.in' => 'You do not have permission to upload that file type.',
         ]);
@@ -57,7 +59,12 @@ class UploadController extends Controller
         // Belt and braces: the dropdown was filtered, but never trust the form.
         abort_unless($request->user()->can($type->permission()), 403);
 
-        $sourceFile = $this->uploads->handle($request->file('file'), $type, $request->user());
+        $sourceFile = $this->uploads->handle(
+            $request->file('file'),
+            $type,
+            $request->user(),
+            ['po_number' => $validated['po_number'] ?? null],
+        );
 
         return redirect()
             ->route('uploads.show', $sourceFile)
