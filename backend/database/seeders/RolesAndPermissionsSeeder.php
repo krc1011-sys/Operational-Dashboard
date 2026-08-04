@@ -53,6 +53,17 @@ class RolesAndPermissionsSeeder extends Seeder
         'actions' => [
             'manage-po-status',
             'manage-fulfillment',
+            /*
+             * Answering "deliver anyway or pull it" on a cancellation (§G).
+             *
+             * ADMIN ONLY for now, deliberately: the eventual owner has not been decided.
+             * It is its own permission rather than part of `manage-fulfillment` so that
+             * handing it to Procurement or Warehouse later is one line in the matrix
+             * below, with nothing else moving. The decision commits us to shipping (or
+             * not shipping) against Amazon's cancellation and carries chargeback risk,
+             * so it stays with Admin until that owner is named.
+             */
+            'decide-cancellations',
             'manage-master',                // Edit the in-app master grid (§S — Admin + PIN)
             'manage-delivery-batches',      // Warehouse batch tracking (planned)
             'manage-email-assistant',       // Amazon email drafting (planned)

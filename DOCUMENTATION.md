@@ -94,7 +94,7 @@ Work happens on the **`phase-1-build`** branch. `main` is never committed to dir
 ### 4.1 Roles and permissions
 
 Defined in `backend/database/seeders/RolesAndPermissionsSeeder.php`, which is the
-repo's source of truth for §O. 28 permissions across 5 roles, grouped as
+repo's source of truth for §O. 29 permissions across 5 roles, grouped as
 screens · actions · money · uploads.
 
 **Money visibility** (as specified in §O):
@@ -450,10 +450,20 @@ Answering can be what finally completes a PO — pulling back the last 50 units 
 200-unit line that shipped 150 closes it — so the decision recomputes rather than
 patching one column.
 
-Seeing the queue needs `view-cancelled-items`; answering needs `manage-fulfillment`, so
-Finance can watch the exposure without being able to commit us to a shipment. Both are
-enforced on the server, not just hidden in the view. The dashboard carries a nudge while
-anything is waiting, because a parked cancellation means real figures are still in limbo.
+Seeing the queue needs `view-cancelled-items`; answering needs **`decide-cancellations`,
+which is Admin-only**. Everyone else — Finance, Procurement, Warehouse — can watch the
+exposure without being able to commit us to a shipment. Both are enforced on the server,
+not just hidden in the view. The dashboard carries a nudge while anything is waiting,
+because a parked cancellation means real figures are still in limbo.
+
+`decide-cancellations` is its own permission rather than part of `manage-fulfillment`,
+so handing this one action to Procurement or Warehouse later is a single line in the
+seeder's matrix, with nothing else moving:
+
+```php
+// RolesAndPermissionsSeeder::MATRIX, e.g. under 'Procurement'
+'decide-cancellations',
+```
 
 ### 8.6 What the real files taught us
 
@@ -534,10 +544,11 @@ specified in the blueprint and should be confirmed.
 13. **Turnaround measures to the *final* packing list's date.** The interim banner date
     is never used for anything, per §K. If a final has no date, the upload day stands in
     and is marked as inferred rather than presented as exact.
-14. **⚠ assumption — answering the deliver-anyway question needs `manage-fulfillment`.**
-    §O never named a permission for this action. Admin, Procurement and Warehouse have
-    it; Finance can see the queue and the exposure but cannot answer. Say the word and
-    it moves.
+14. **Answering the deliver-anyway question is Admin-only, deliberately.** §O never named
+    a permission for this action and the eventual owner has not been decided, so it sits
+    with Admin until it is. It has its own permission, `decide-cancellations`, precisely
+    so that handing it over later is one line and nothing else moves. Everyone with
+    `view-cancelled-items` can still watch the queue and the chargeback exposure.
 15. **"Pull it" cannot un-ship.** §G says pulling back is "only possible if not yet
     booked/shipped". Rather than refusing the whole answer, the honourable part is
     honoured and the already-shipped remainder is recorded as delivered anyway — which

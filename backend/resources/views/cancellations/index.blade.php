@@ -116,8 +116,9 @@
                                 </p>
                             @else
                                 <p class="mt-4 text-xs text-gray-600">
-                                    You can see this queue but not answer it — that needs the
-                                    “edit fulfilment” permission.
+                                    You can see this queue but not answer it. Answering is Admin-only for
+                                    now — it commits us to shipping, or not shipping, against Amazon's
+                                    cancellation.
                                 </p>
                             @endif
                         </div>

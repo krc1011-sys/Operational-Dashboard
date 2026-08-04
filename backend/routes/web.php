@@ -52,7 +52,7 @@ Route::middleware('auth')->group(function () {
             ->name('index');
 
         Route::post('/{cancellation}/decision', [CancellationDecisionController::class, 'decide'])
-            ->middleware('permission:manage-fulfillment')
+            ->middleware('permission:decide-cancellations')
             ->name('decide');
     });
 

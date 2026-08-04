@@ -24,8 +24,10 @@ use Illuminate\View\View;
  *   Pull it        - take it back out of the delivery. Anything already shipped cannot
  *                    be pulled, so that part stays counted as delivered anyway.
  *
- * Seeing the queue needs `view-cancelled-items`; answering it needs `manage-fulfillment`,
- * so Finance can watch the exposure without being able to commit us to a shipment.
+ * Seeing the queue needs `view-cancelled-items`; answering it needs `decide-cancellations`,
+ * which is ADMIN ONLY for now because the eventual owner has not been decided. Everyone
+ * else - Finance especially - can watch the exposure without being able to commit us to
+ * a shipment.
  */
 class CancellationDecisionController extends Controller
 {
@@ -51,7 +53,7 @@ class CancellationDecisionController extends Controller
                 ->get(),
             'waiting' => Cancellation::where('is_unmatched', true)->count(),
             'netted' => (int) Cancellation::sum('qty_honoured'),
-            'canDecide' => $request->user()->can('manage-fulfillment'),
+            'canDecide' => $request->user()->can('decide-cancellations'),
             'decider' => $this->decider,
         ]);
     }

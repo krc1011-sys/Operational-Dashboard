@@ -67,6 +67,7 @@
                     'Actions' => [
                         'Edit PO status' => 'manage-po-status',
                         'Edit fulfilment' => 'manage-fulfillment',
+                        'Decide cancellations' => 'decide-cancellations',
                         'Edit master grid' => 'manage-master',
                         'Delivery batches' => 'manage-delivery-batches',
                         'Email assistant' => 'manage-email-assistant',

@@ -125,23 +125,35 @@ class CancellationDecisionTest extends TestCase
             ->assertForbidden();
     }
 
-    /** Finance watches the exposure; it does not get to commit us to a shipment. */
-    public function test_finance_can_see_the_queue_but_not_answer_it(): void
+    /**
+     * Answering is Admin-only for now: the eventual owner has not been decided, and the
+     * answer commits us to shipping (or not) against Amazon's cancellation. Everyone
+     * else watches the exposure without being able to act on it.
+     */
+    public function test_only_admin_can_answer_the_question(): void
     {
         $cancellation = $this->parkedCancellation();
 
-        $this->actingAs($this->user('Finance'))
-            ->get(route('cancellations.index'))
-            ->assertOk()
-            // No decision form at all - not a disabled one.
-            ->assertDontSee(route('cancellations.decide', $cancellation), false)
-            ->assertSee('not answer it');
+        foreach (['Finance', 'Procurement', 'Warehouse'] as $role) {
+            $this->actingAs($this->user($role))
+                ->get(route('cancellations.index'))
+                ->assertOk()
+                // No decision form at all - not a disabled one.
+                ->assertDontSee(route('cancellations.decide', $cancellation), false)
+                ->assertSee('not answer it');
 
-        $this->actingAs($this->user('Finance'))
+            $this->actingAs($this->user($role))
+                ->post(route('cancellations.decide', $cancellation), ['choice' => 'delivered_anyway'])
+                ->assertForbidden();
+
+            $this->assertSame(CancellationResolution::NeedsDecision, $cancellation->fresh()->resolution);
+        }
+
+        $this->actingAs($this->user('Admin'))
             ->post(route('cancellations.decide', $cancellation), ['choice' => 'delivered_anyway'])
-            ->assertForbidden();
+            ->assertRedirect();
 
-        $this->assertSame(CancellationResolution::NeedsDecision, $cancellation->fresh()->resolution);
+        $this->assertSame(CancellationResolution::DeliveredAnyway, $cancellation->fresh()->resolution);
     }
 
     // --- The two answers ------------------------------------------------------
@@ -178,7 +190,7 @@ class CancellationDecisionTest extends TestCase
     {
         $cancellation = $this->parkedCancellation();
 
-        $this->actingAs($this->user('Warehouse'))
+        $this->actingAs($this->user('Admin'))
             ->post(route('cancellations.decide', $cancellation), ['choice' => 'pulled_back'])
             ->assertRedirect();
 
