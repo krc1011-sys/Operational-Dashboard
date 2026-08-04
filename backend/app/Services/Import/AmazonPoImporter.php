@@ -14,6 +14,7 @@ use App\Services\Spreadsheet\Workbook;
 use App\Services\Upload\ImportResult;
 use App\Services\Upload\Importer;
 use App\Services\Upload\ValidationResult;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -205,6 +206,15 @@ class AmazonPoImporter implements Importer
 
         $fc = $headers->text($row, 'ship to location', 'ship to');
 
+        /*
+         * The single-PO export has no order date - only a future delivery window, which
+         * is no use as the "PO raised" anchor turnaround measures from (§L). So it can be
+         * typed on the upload form. The file always wins: a date read from a real column
+         * is never replaced by a typed one, and array_filter below drops the null.
+         */
+        $orderDate = $headers->date($row, 'order date')
+            ?? $this->typedOrderDate($sourceFile);
+
         $purchaseOrder = PurchaseOrder::updateOrCreate(
             ['marketplace' => Marketplace::Amazon->value, 'po_number' => $poNumber],
             array_filter([
@@ -214,7 +224,7 @@ class AmazonPoImporter implements Importer
                 'ship_to_raw' => $fc,
                 'ship_to_fc' => $fc ? $this->cleanFc($fc) : null,
                 'currency' => $headers->text($row, 'currency') ?? 'AED',
-                'order_date' => $headers->date($row, 'order date'),
+                'order_date' => $orderDate,
                 'window_start' => $headers->date($row, 'window start'),
                 'window_end' => $headers->date($row, 'window end'),
                 'expected_date' => $headers->date($row, 'expected date'),
@@ -226,6 +236,14 @@ class AmazonPoImporter implements Importer
         );
 
         return $this->poCache[$poNumber] = $purchaseOrder;
+    }
+
+    /** The PO date typed on the upload form, for the format that has no such column. */
+    private function typedOrderDate(SourceFile $sourceFile): ?Carbon
+    {
+        $typed = data_get($sourceFile->summary, 'order_date');
+
+        return filled($typed) ? Carbon::parse($typed)->startOfDay() : null;
     }
 
     /**

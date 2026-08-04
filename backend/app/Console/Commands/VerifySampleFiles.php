@@ -177,8 +177,71 @@ class VerifySampleFiles extends Command
         $this->reportBulkExport();
         $this->reportMultiDeliveryPo($dir);
         $this->reportInterimLists();
+        $this->reportTurnaround();
         $this->reportCancellations();
         $this->reportUnmatched();
+    }
+
+    /**
+     * Turnaround and completion (§L).
+     *
+     * The blueprint has no hand-verified turnaround figures to check against - it
+     * defines the rule, not the answer - so this section reports what the engine makes
+     * of the real files rather than asserting. The one thing it does assert is the
+     * multi-delivery PO: it is 623 units short, so it must NOT read as complete.
+     */
+    private function reportTurnaround(): void
+    {
+        $orders = PurchaseOrder::orderBy('po_number')->get();
+
+        if ($orders->isEmpty()) {
+            return;
+        }
+
+        $benchmark = (int) config('operon.benchmarks.turnaround_days');
+
+        $this->info("Turnaround (benchmark {$benchmark} days)");
+
+        $shipped = $orders->filter(fn (PurchaseOrder $po) => $po->first_shipped_on !== null);
+
+        foreach ($shipped as $po) {
+            $this->line(sprintf(
+                '     %-10s ordered %s → first shipped %s   %s%s',
+                $po->po_number,
+                $po->order_date?->format('d M') ?? '   ?  ',
+                $po->first_shipped_on->format('d M'),
+                $po->is_complete
+                    ? 'COMPLETE in '.($po->days_to_complete ?? '?').' days'
+                    : ($po->daysOpen() === null ? 'open' : $po->daysOpen().' days and counting'),
+                $po->isBreachingBenchmark() ? '  <fg=yellow>over benchmark</>' : ''
+            ));
+        }
+
+        $undated = $shipped->whereNull('order_date');
+
+        if ($undated->isNotEmpty()) {
+            $this->line('');
+            $this->line('  <fg=yellow>Note:</> '.$undated->count().' shipped PO(s) carry no order date, so they have a');
+            $this->line('  completion date but no day count. The single-PO export has no such column - only a');
+            $this->line('  future delivery window, which is not the day the PO was raised. Either upload the');
+            $this->line('  same PO from the bulk export, which does carry it, or type the PO date on the');
+            $this->line('  upload form. Nothing is invented here.');
+            $this->line('');
+        }
+
+        $this->line('  POs with at least one shipment: '.$shipped->count().' of '.$orders->count());
+        $this->line('  Complete: '.$orders->where('is_complete', true)->count()
+            .'  ·  still open: '.$orders->where('is_complete', false)->count());
+
+        // The multi-delivery PO is short of its accepted quantity, so it stays open.
+        $multi = $orders->first(fn (PurchaseOrder $po) => $po->shippedDeliveries()->count() >= 8);
+
+        if ($multi !== null) {
+            $this->row("PO {$multi->po_number} complete?", $multi->is_complete ? 'yes' : 'no', 'no');
+            $this->line('     (623 units short across 3 ASINs, so it is correctly still open)');
+        }
+
+        $this->line('');
     }
 
     private function reportBulkExport(): void

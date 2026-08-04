@@ -10,6 +10,16 @@
 
             <x-upload-freshness :overdue="$overdue ?? []" />
 
+            @if(($awaitingDecision ?? 0) > 0)
+                <div class="bg-amber-50 border border-amber-300 rounded-lg p-4 text-sm text-amber-900">
+                    <strong>{{ $awaitingDecision }}</strong>
+                    cancellation{{ $awaitingDecision === 1 ? '' : 's' }} for units already booked or shipped
+                    {{ $awaitingDecision === 1 ? 'is' : 'are' }} waiting on you. Nothing has been netted off
+                    until you answer.
+                    <a href="{{ route('cancellations.index') }}" class="underline font-medium">Deliver anyway, or pull it →</a>
+                </div>
+            @endif
+
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
                 <p class="text-lg">Welcome, <strong>{{ auth()->user()->name }}</strong></p>
                 <p class="text-gray-600">{{ auth()->user()->email }}</p>

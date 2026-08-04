@@ -23,21 +23,25 @@ use RuntimeException;
  * This file is the SOLE source of netting. The PO export's own "Cancelled quantity"
  * column is never used for it.
  *
- * Netting is not automatic. A cancellation is applied silently only when the units are
- * still free. If honouring it would claw back units already booked into a delivery or
- * already shipped, the row is parked as "needs your decision" and nothing is netted
- * until a human answers:
+ * Netting is not automatic, and the rules for it are NOT in this class - they live in
+ * CancellationDecider, because they also have to run later, when a late PO or a new
+ * packing list changes the picture. All this importer does is read the sheet, hand each
+ * row to the decider, and then let the Reconciler have the last word.
  *
- *   Deliver anyway -> units stay accepted and count as delivered, and the line carries
- *                     a chargeback-exposure warning.
- *   Pull it        -> reduce as normal.
+ * Two things it does decide for itself:
  *
- * "Quantity Confirmed" is used only as a cross-check against the accepted quantity we
- * already hold; a mismatch warns rather than blocks.
+ *  - A decision somebody already made is preserved when the same row is uploaded again
+ *    unchanged. If the cancelled quantity has changed, that decision was made about
+ *    different numbers, so the row is reopened and asked again.
+ *  - "Quantity Confirmed" is used only as a cross-check against the accepted quantity we
+ *    already hold; a mismatch warns rather than blocks.
  */
 class AmazonCancellationImporter implements Importer
 {
-    public function __construct(private readonly Reconciler $reconciler) {}
+    public function __construct(
+        private readonly Reconciler $reconciler,
+        private readonly CancellationDecider $decider,
+    ) {}
 
     public function import(SourceFile $sourceFile, string $path, ValidationResult $validation): ImportResult
     {
@@ -57,13 +61,13 @@ class AmazonCancellationImporter implements Importer
         $headers = $validation->headers;
 
         $read = $imported = $skipped = $unmatched = 0;
-        $needsDecision = 0;
         $unitsCancelled = 0;
-        $unitsNetted = 0;
         $warnings = [];
         $poNumbers = [];
         $skus = [];
         $mismatches = [];
+        $reopened = [];
+        $ids = [];
 
         foreach ($sheet->rows($validation->headerRow + 1) as $row) {
             if (Sheet::isBlankRow($row)) {
@@ -89,12 +93,24 @@ class AmazonCancellationImporter implements Importer
 
             $confirmed = $headers->int($row, 'quantity confirmed', 'confirmed quantity');
 
-            // Decide now whether this can be netted silently (§G).
-            [$resolution, $honoured, $deliveredAnyway] = $this->decide($poLine, $cancelled);
+            $existing = Cancellation::where('marketplace', Marketplace::Amazon->value)
+                ->where('po_number', $poNumber)
+                ->where('sku_id', $asin)
+                ->first();
 
-            if ($resolution === CancellationResolution::NeedsDecision) {
-                $needsDecision++;
+            // An answer somebody gave survives a re-upload of the same figures; if the
+            // quantity has moved, the question has to be asked again.
+            $keepDecision = $existing !== null
+                && $existing->isResolvedByHuman()
+                && (int) $existing->qty_cancelled === $cancelled;
+
+            if ($existing?->isResolvedByHuman() && ! $keepDecision) {
+                $reopened[] = "{$poNumber} / {$asin}";
             }
+
+            [$resolution, $honoured, $deliveredAnyway] = $keepDecision
+                ? [$existing->resolution, (int) $existing->qty_honoured, (int) $existing->qty_delivered_anyway]
+                : $this->decider->decide($poLine, $cancelled);
 
             if ($poLine === null) {
                 $unmatched++;
@@ -105,7 +121,7 @@ class AmazonCancellationImporter implements Importer
                 );
             }
 
-            Cancellation::updateOrCreate(
+            $cancellation = Cancellation::updateOrCreate(
                 [
                     'marketplace' => Marketplace::Amazon->value,
                     'po_number' => $poNumber,
@@ -124,6 +140,10 @@ class AmazonCancellationImporter implements Importer
                     'resolution' => $resolution,
                     'qty_honoured' => $honoured,
                     'qty_delivered_anyway' => $deliveredAnyway,
+                    // A reopened row loses its old stamp along with its old answer.
+                    'resolution_note' => $keepDecision ? $existing->resolution_note : null,
+                    'resolved_by' => $keepDecision ? $existing->resolved_by : null,
+                    'resolved_at' => $keepDecision ? $existing->resolved_at : null,
                     'source_file_id' => $sourceFile->id,
                     'imported_at' => now(),
                     'imported_by' => $sourceFile->uploaded_by,
@@ -131,8 +151,8 @@ class AmazonCancellationImporter implements Importer
             );
 
             $imported++;
+            $ids[] = $cancellation->id;
             $unitsCancelled += $cancelled;
-            $unitsNetted += $honoured;
             $poNumbers[$poNumber] = true;
             $skus[$asin] = true;
         }
@@ -143,15 +163,30 @@ class AmazonCancellationImporter implements Importer
 
         $this->reconciler->recomputePoLinesFor(Marketplace::Amazon, array_keys($poNumbers), array_keys($skus));
 
+        /*
+         * Report what is true AFTER reconciling, not what we guessed while reading the
+         * sheet. The reconciler gets the last word - a row read early in the file can be
+         * re-decided by the time the import finishes.
+         */
+        $stored = Cancellation::whereIn('id', $ids)->get();
+        $needsDecision = $stored->filter(fn (Cancellation $c) => $c->resolution === CancellationResolution::NeedsDecision);
+        $unitsNetted = (int) $stored->sum('qty_honoured');
+
         if ($unmatched > 0) {
             $warnings[] = "{$unmatched} cancellation(s) are for POs not yet uploaded. They are "
                 .'stored and will net automatically once those POs arrive.';
         }
 
-        if ($needsDecision > 0) {
-            $warnings[] = "{$needsDecision} cancellation(s) would claw back units already booked "
-                .'or shipped. Nothing has been netted for those - they need a "deliver anyway" '
-                .'or "pull it" decision.';
+        if ($needsDecision->isNotEmpty()) {
+            $warnings[] = $needsDecision->count().' cancellation(s) would claw back units already booked '
+                .'or shipped. Nothing has been netted for those - go to Cancellations and answer '
+                .'"deliver anyway" or "pull it" for each.';
+        }
+
+        if ($reopened !== []) {
+            $warnings[] = count($reopened).' cancellation(s) had already been decided, but the '
+                .'cancelled quantity has changed, so they are being asked again: '
+                .implode(', ', array_slice($reopened, 0, 5)).'.';
         }
 
         foreach (array_slice($mismatches, 0, 10) as $mismatch) {
@@ -167,39 +202,11 @@ class AmazonCancellationImporter implements Importer
             summary: [
                 'units_cancelled' => $unitsCancelled,
                 'units_netted' => $unitsNetted,
-                'needs_decision' => $needsDecision,
+                'needs_decision' => $needsDecision->count(),
+                'decisions_reopened' => count($reopened),
                 'po_count' => count($poNumbers),
                 'confirmed_qty_mismatches' => count($mismatches),
             ],
         );
-    }
-
-    /**
-     * How much of this cancellation can be netted right now.
-     *
-     * @return array{0: CancellationResolution, 1: int, 2: int}  resolution, honoured, delivered-anyway
-     */
-    private function decide(?PoLine $poLine, int $cancelled): array
-    {
-        if ($cancelled <= 0) {
-            return [CancellationResolution::Applied, 0, 0];
-        }
-
-        // No PO line yet: store it, net nothing, revisit when the PO lands.
-        if ($poLine === null) {
-            return [CancellationResolution::Applied, 0, 0];
-        }
-
-        // Units already promised to a delivery or already gone.
-        $committed = max($poLine->qty_booked, $poLine->qty_shipped);
-        $free = max(0, $poLine->qty_accepted - $committed);
-
-        if ($cancelled <= $free) {
-            return [CancellationResolution::Applied, $cancelled, 0];
-        }
-
-        // Would eat into committed units - stop and ask (§G). Net nothing meanwhile,
-        // so no figure silently changes behind the user's back.
-        return [CancellationResolution::NeedsDecision, 0, 0];
     }
 }

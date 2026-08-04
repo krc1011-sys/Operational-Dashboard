@@ -1,8 +1,10 @@
 <?php
 
+use App\Http\Controllers\CancellationDecisionController;
 use App\Http\Controllers\MoneyPinController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\UploadController;
+use App\Models\Cancellation;
 use App\Models\SourceFile;
 use Illuminate\Support\Facades\Route;
 
@@ -11,8 +13,14 @@ Route::get('/', function () {
 });
 
 Route::get('/dashboard', function () {
-    // The §J freshness nudge rides along on the dashboard.
-    return view('dashboard', ['overdue' => SourceFile::overdueTypes()]);
+    return view('dashboard', [
+        // The §J freshness nudge rides along on the dashboard.
+        'overdue' => SourceFile::overdueTypes(),
+        // So does the §G queue: a parked cancellation holds real figures still.
+        'awaitingDecision' => auth()->user()->can('view-cancelled-items')
+            ? Cancellation::needsDecision()->count()
+            : 0,
+    ]);
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
@@ -32,6 +40,21 @@ Route::middleware('auth')->group(function () {
     Route::get('/money', fn () => view('money-placeholder'))
         ->middleware(['permission:view-margin', 'money.pin'])
         ->name('money.index');
+
+    /*
+     * Cancellations, and the "deliver anyway or pull it" queue (§G). Seeing the queue
+     * and answering it are separate rights: Finance watches the chargeback exposure,
+     * fulfilment answers the question.
+     */
+    Route::prefix('cancellations')->name('cancellations.')->group(function () {
+        Route::get('/', [CancellationDecisionController::class, 'index'])
+            ->middleware('permission:view-cancelled-items')
+            ->name('index');
+
+        Route::post('/{cancellation}/decision', [CancellationDecisionController::class, 'decide'])
+            ->middleware('permission:manage-fulfillment')
+            ->name('decide');
+    });
 
     /*
      * The Upload tab (§J). Per-type permissions are enforced inside the controller,

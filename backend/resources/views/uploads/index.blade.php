@@ -63,7 +63,18 @@
                             <code>PurchaseOrder.xlsx</code>, type the PO number here.
                         </p>
                         <x-input-error :messages="$errors->get('po_number')" class="mt-2" />
-                    </div>
+
+                        {{-- Nor does it carry the order date, which turnaround is measured from (§L). --}}
+                        <x-input-label for="order_date" value="PO date (optional)" class="mt-4" />
+                        <x-text-input id="order_date" name="order_date" type="date" class="mt-1 block w-full"
+                                      :value="old('order_date')" />
+                        <p class="text-xs text-gray-500 mt-1">
+                            This format has no order date either — only a future delivery window. Turnaround
+                            is measured from the day the PO was raised, so without this the PO will show its
+                            completion date but no day count. The bulk export does carry it, so leave this
+                            blank if the same PO also arrives that way.
+                        </p>
+                        <x-input-error :messages="$errors->get('order_date')" class="mt-2" />
 
                     <div>
                         <x-input-label for="file" value="2. Choose the file" />

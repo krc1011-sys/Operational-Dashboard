@@ -48,8 +48,10 @@ class UploadController extends Controller
         $validated = $request->validate([
             'upload_type' => ['required', Rule::in(array_keys($allowed))],
             'file' => ['required', 'file', 'max:51200'], // 50 MB
-            // The single-PO export has no PO column, so it may need to be typed in (§C).
+            // The single-PO export has no PO column, so it may need to be typed in (§C),
+            // and no order date either, which turnaround needs (§L).
             'po_number' => ['nullable', 'string', 'max:64'],
+            'order_date' => ['nullable', 'date'],
         ], [
             'upload_type.in' => 'You do not have permission to upload that file type.',
         ]);
@@ -63,7 +65,10 @@ class UploadController extends Controller
             $request->file('file'),
             $type,
             $request->user(),
-            ['po_number' => $validated['po_number'] ?? null],
+            [
+                'po_number' => $validated['po_number'] ?? null,
+                'order_date' => $validated['order_date'] ?? null,
+            ],
         );
 
         return redirect()

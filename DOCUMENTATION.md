@@ -4,7 +4,7 @@
 This file records how the spec has actually been built: what exists, how to run it,
 what was decided during the build, and what is still open.
 
-Last updated: **M3 complete and verified against the real files.**
+Last updated: **M4 complete — the reconciliation engine is finished.**
 
 ---
 
@@ -77,7 +77,7 @@ Run the tests with `php artisan test`.
 | **M1** | Full data model / migrations | ✅ Done |
 | **M2** | Upload framework + parser core | ✅ Done |
 | **M3** | Amazon ingest — **checkpoint, verified on real files** | ✅ Done |
-| M4 | Reconciliation engine — turnaround, deliver-anyway workflow | ◐ Part built at M3 |
+| **M4** | Reconciliation engine — turnaround, deliver-anyway workflow, PO completion | ✅ Done |
 | M5 | Core screens with self-serve filters | ⬜ |
 | M6 | Master grid + net-margin engine | ⬜ |
 | M7 | Money views — **checkpoint** | ⬜ |
@@ -358,7 +358,128 @@ Full suite: **102 passing**.
 
 ---
 
-## 8. Decisions made during the build
+## 8. M4 — Reconciliation engine (done)
+
+M3 could already answer "how much was booked and shipped". M4 answers the two questions
+the business actually manages: **how long did it take**, and **what do we do about a
+cancellation for units that have already left**.
+
+### 8.1 Where the rules live
+
+Nothing new is typed in — every figure is derived and recomputed from the imported files.
+Three classes, with a deliberate split:
+
+| Where | What it owns |
+|---|---|
+| `Reconciler` | **When** to recompute, and in what order |
+| Model `compute*()` methods | **What** each number means (`PurchaseOrder::computeCompletedOn()`, …) |
+| `CancellationDecider` | The §G cancellation rules, on their own |
+
+The order inside a recompute is the part that matters, and it is deliberate:
+
+1. booked and shipped, straight from the packing lines;
+2. **re-judge any cancellation nobody has answered yet**, against those fresh figures;
+3. net accepted, not-booked, fill rate, line state, chargeback flag;
+4. the PO's turnaround and completion, which depend on all of the above.
+
+Step 2 is new, and the reason it exists is in §8.4.
+
+### 8.2 Turnaround (§L)
+
+- **Headline = completion date − PO date**, against the 10-day benchmark. While a PO is
+  open it reads **"X days and counting"**, and it is flagged as breaching the benchmark
+  whether or not it has landed — a PO 25 days open is the problem, not just a late one
+  that finally arrived.
+- **Secondary = time-to-first-shipment**, the responsiveness measure.
+- **Which date counts.** The date comes from the delivery, and only from a *final*
+  packing list — being booked into a delivery is not having shipped. The interim
+  banner's "Shipment Date" is never used for anything, because Amazon reschedules it
+  (§K). If a final carries no date at all, the day it was uploaded stands in and the
+  delivery says so (`fulfilmentDateIsInferred()`), so a screen can mark it rather than
+  quietly presenting a guess as fact.
+
+### 8.3 PO completion
+
+Complete when **every line has shipped at least its net accepted quantity**. Because net
+accepted already has honoured cancellations taken off it, that one rule also covers §L's
+"or the remainder is cancelled" without a second code path.
+
+`completed_on` is the later of the last shipment and the cancellation that closed the
+gap. A PO that shipped 800 of 1,000 on the 5th and had the other 200 cancelled on the
+20th was **not** complete until the 20th, and that is what it reports.
+
+A cancellation still waiting for an answer nets nothing, so it correctly holds the PO
+open until somebody answers — the PO does not quietly close on a decision nobody made.
+
+### 8.4 The bug M4 found in M3
+
+The cancellation rules used to live inside the importer, so they ran **once**, at upload
+time, and never again. A cancellation uploaded before its PO was therefore stored,
+linked up when the PO arrived — and netted **nothing**, for ever. The upload screen
+meanwhile promised "they will net automatically once those POs arrive".
+
+The M3 test only checked that such a row *linked*, not that it *netted*, which is exactly
+how it survived. The rules now live in `CancellationDecider` and the Reconciler re-runs
+them on every recompute, so the promise is kept. Two rules keep that safe:
+
+- a row **a person has answered** is never re-judged;
+- a row that has **already netted** is never un-netted — a packing list arriving later
+  cannot hand back units that were legitimately cancelled.
+
+The awkward ordering is covered too: when the packing list *and* the cancellation both
+arrive before the PO, the booked units are counted **before** the cancellation is judged,
+or it would look free and net itself off units already on a truck.
+
+### 8.5 The deliver-anyway workflow (§G)
+
+A new **Cancellations** screen. Most cancellations never reach it — if the units were
+free they netted automatically at upload. What lands here is Amazon cancelling units we
+have already booked or shipped, where the system refuses to guess and nets nothing.
+
+Each parked row shows the numbers behind the question — accepted, booked, shipped, still
+free, cancelled — and offers two answers:
+
+- **Deliver anyway** — the units stay accepted and count as delivered, so the line can
+  still read 100%, and it is flagged for **chargeback exposure**.
+- **Pull it** — netted off as normal. But **units already shipped cannot be pulled back**,
+  so only the rest is honoured and the shipped remainder is recorded as delivered anyway,
+  raising the chargeback flag for exactly those units. The screen says so before you
+  click, and the confirmation says what actually happened.
+
+Answering can be what finally completes a PO — pulling back the last 50 units of a
+200-unit line that shipped 150 closes it — so the decision recomputes rather than
+patching one column.
+
+Seeing the queue needs `view-cancelled-items`; answering needs `manage-fulfillment`, so
+Finance can watch the exposure without being able to commit us to a shipment. Both are
+enforced on the server, not just hidden in the view. The dashboard carries a nudge while
+anything is waiting, because a parked cancellation means real figures are still in limbo.
+
+### 8.6 What the real files taught us
+
+- **The single-PO export has no order date.** It carries only a future "Expected date"
+  (a delivery window), which is not the day the PO was raised — using it would produce
+  nonsense turnaround. So the upload form now has an optional **PO date** box for that
+  file type, beside the PO-number box it already had. A typed date is only ever a
+  fallback: a date the file itself carries always wins.
+- Nothing is invented when there is no date anywhere. The PO still completes and reports
+  its completion date; it simply has no day count, and `verify-samples` says why.
+- The multi-delivery PO is **623 units short, and correctly reads as still open** — now
+  an asserted check in `verify-samples`, alongside every M3 figure, all still passing.
+
+### 8.7 Tests
+
+`ReconciliationTest` (14) covers turnaround, the benchmark, completion by shipping and
+completion by cancellation, the missing-date fallbacks, the re-judging rules in both
+directions, and that recomputing twice changes nothing.
+`CancellationDecisionTest` (11) covers the workflow end to end: who may see it, who may
+answer it, what each answer does to net accepted / fill rate / the chargeback flag, and
+what a re-uploaded cancellation file does to a decision already made.
+Full suite: **127 passing**.
+
+---
+
+## 9. Decisions made during the build
 
 Recorded here so they are not re-litigated. Anything marked **⚠ assumption** was not
 specified in the blueprint and should be confirmed.
@@ -408,9 +529,36 @@ specified in the blueprint and should be confirmed.
     `*.xlsx`, `*.xlsm`, `*.csv` and `samples/` wholesale, because these files are real
     purchase orders and costs and anything committed to git is permanent.
 
+**Added at M4:**
+
+13. **Turnaround measures to the *final* packing list's date.** The interim banner date
+    is never used for anything, per §K. If a final has no date, the upload day stands in
+    and is marked as inferred rather than presented as exact.
+14. **⚠ assumption — answering the deliver-anyway question needs `manage-fulfillment`.**
+    §O never named a permission for this action. Admin, Procurement and Warehouse have
+    it; Finance can see the queue and the exposure but cannot answer. Say the word and
+    it moves.
+15. **"Pull it" cannot un-ship.** §G says pulling back is "only possible if not yet
+    booked/shipped". Rather than refusing the whole answer, the honourable part is
+    honoured and the already-shipped remainder is recorded as delivered anyway — which
+    raises the chargeback flag for exactly the units at risk. The alternative (refuse
+    the answer outright) leaves the user with no way forward.
+16. **Pulling back does not edit the uploaded interim packing list.** The file is a
+    record of what was uploaded and stays that way; net accepted drops, and the eventual
+    final simply will not contain those units. The screen tells the user to have the
+    warehouse leave them off.
+17. **`completed_on` is the later of the last shipment and the honoured cancellation.**
+    A PO closed by cancelling the remainder was not complete on the day of its last
+    shipment.
+18. **A human decision survives a re-upload of the same figures**, but a changed
+    cancelled quantity reopens the question — that decision was made about different
+    numbers. Reopening is reported in the upload's warnings.
+19. **⚠ assumption — the typed PO date is optional and never overrides the file.** It
+    exists only because the single-PO export has no order-date column at all.
+
 ---
 
-## 9. Open questions
+## 10. Open questions
 
 Carried forward from blueprint §H, plus what the build has raised.
 
@@ -418,24 +566,25 @@ Carried forward from blueprint §H, plus what the build has raised.
 |---|---|---|
 | H3 | Final fixed file templates / filenames | **Resolved for Amazon at M3** — all four formats confirmed against real files; filenames stay informational |
 | H4 | DB column names vs migrations | **Resolved at M1** — the model was rebuilt |
-| — | The ⚠ assumptions in §8 above | Awaiting confirmation, not blocking |
+| — | The ⚠ assumptions in §9 above | Awaiting confirmation, not blocking |
 | — | **Cancellation POs are from a different batch** | Netting unproven on real data — see §7.2 |
+| — | **The single-PO export has no order date** | **Worked around at M4** — optional PO-date box on the upload form; the bulk export carries it properly |
+| — | Correcting a delivery date after the fact | Engine supports it (`delivered_on`, `is_manual`); the edit screen comes with M5, and Noon needs it at M8 |
 | — | Sell-through benchmark for the sell-in/sell-out flag (§P) | Needed by M9 |
 | — | Weighted-average vs latest supplier cost (§S) | Deferred to Phase 3, as specified |
 
 ---
 
-## 10. What M4 needs next
+## 11. What M5 needs next
 
-M4 completes the reconciliation engine on top of what M3 built:
+The engine is complete; M5 is the screens that finally show what it computes:
 
-- **Turnaround** — `first_shipped_on`, `completed_on`, `days_to_complete` against the
-  10-day benchmark, plus "X days and counting" while a PO is open.
-- **The deliver-anyway workflow** — a screen for the cancellations parked as
-  *needs decision*, writing `pulled_back` or `delivered_anyway` and raising the
-  chargeback flag.
-- **PO completion** — marking a PO complete when shipped ≥ net accepted, or the
-  remainder is cancelled.
+- **Overview KPIs**, **PO Lookup** with its linked deliveries and days-to-complete,
+  **Fulfilment**, **Pending**, **Shipments by ASN**, and the committed-deliveries lookup.
+- All with the §M self-serve filters: date range, channel, FC, brand, category, status,
+  PO/ASIN search, bulk-ASIN paste, group-by and export.
+- **Editing a delivery date** where it turned out wrong — the engine already recomputes
+  turnaround when it changes, there is just no screen for it yet.
 
 ### Useful extra files, when convenient
 
@@ -444,14 +593,15 @@ constructed data:
 
 | File | What it would prove |
 |---|---|
-| A cancellation sheet naming POs we hold | Netting on real data (§7.2) |
+| A cancellation sheet naming POs we hold | Netting **and the deliver-anyway queue** on real data (§7.2) |
 | The bulk export covering `774FV9FB` / `77Z18X8Q` etc. | The 178 waiting packing lines linking up |
 | A PO with `Accepted < Requested` | Confirmation rate — every sample row is 100% |
+| The order date for PO `6QT4G44D` | The first real turnaround figure (§8.6) |
 | The `Master_Products_Sheet.xlsx` | Needed for M6 anyway |
 
 ---
 
-## 11. Things worth knowing about the data
+## 12. Things worth knowing about the data
 
 Rules that are counter-intuitive and easy to get wrong — all from the blueprint,
 repeated here because they are the source of most potential bugs:
@@ -465,6 +615,11 @@ repeated here because they are the source of most potential bugs:
 - Packing-list lines whose PO isn't ingested yet are **stored anyway** and reconciled
   later. This is normal during rollout, not an error.
 - A cancellation for units **already booked or shipped** must stop and ask the user:
-  *deliver anyway* (flag chargeback exposure) or *pull it*.
+  *deliver anyway* (flag chargeback exposure) or *pull it*. Until they answer, **nothing
+  nets** — and the PO stays open.
+- Once a cancellation has netted, **a later packing list must never un-net it**. The
+  re-judging rules run only on rows nobody has answered and nothing has netted.
+- **Booked is not shipped.** Only a *final* packing list ships units, dates a delivery
+  and can complete a PO. An interim never does.
 - Packing-list cells are formulas; the reader takes the **cached calculated value**.
   Users are never asked to flatten or paste-values.

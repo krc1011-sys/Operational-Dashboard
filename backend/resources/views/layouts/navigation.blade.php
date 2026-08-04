@@ -16,6 +16,12 @@
                         {{ __('Dashboard') }}
                     </x-nav-link>
 
+                    @can('view-cancelled-items')
+                        <x-nav-link :href="route('cancellations.index')" :active="request()->routeIs('cancellations.*')">
+                            {{ __('Cancellations') }}
+                        </x-nav-link>
+                    @endcan
+
                     @if(auth()->user()?->canUploadAnything())
                         <x-nav-link :href="route('uploads.index')" :active="request()->routeIs('uploads.*')">
                             {{ __('Uploads') }}

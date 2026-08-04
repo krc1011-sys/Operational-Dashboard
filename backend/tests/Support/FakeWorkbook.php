@@ -73,20 +73,58 @@ class FakeWorkbook
         return $path;
     }
 
-    /** A plausible Amazon bulk PO export. */
-    public static function amazonPo(): self
+    /**
+     * A plausible Amazon bulk PO export.
+     *
+     * The defaults are the two-line PO the M3 tests are written around. Turnaround tests
+     * pass their own lines and order date, because the whole KPI is measured from it.
+     *
+     * @param  array<int, array{0: string, 1: string, 2: int, 3: int}>|null  $lines  [po, asin, requested, accepted]
+     */
+    public static function amazonPo(?array $lines = null, string $orderDate = '2026-08-03'): self
     {
+        $lines ??= [
+            ['774FV9FB', 'B08TEST0001', 200, 180],
+            ['774FV9FB', 'B08TEST0002', 100, 100],
+        ];
+
+        $rows = [[
+            'PO', 'Vendor code', 'Order date', 'Status', 'Product name', 'ASIN',
+            'External ID type', 'External ID', 'Requested quantity',
+            'Accepted quantity', 'Ship-to location', 'Cost', 'Currency',
+        ]];
+
+        foreach ($lines as $index => [$po, $asin, $requested, $accepted]) {
+            $rows[] = [$po, '1F6RD', $orderDate, 'Confirmed', 'Test product '.($index + 1), $asin,
+                'EAN', '0634562947130', $requested, $accepted, 'DXB3', 24.5, 'AED'];
+        }
+
         return (new self)
             ->sheet('Instructions', [['Ignore this tab']])
-            ->sheet('Line Items', [
-                ['PO', 'Vendor code', 'Order date', 'Status', 'Product name', 'ASIN',
-                    'External ID type', 'External ID', 'Requested quantity',
-                    'Accepted quantity', 'Ship-to location', 'Cost', 'Currency'],
-                ['774FV9FB', '1F6RD', '2026-08-03', 'Confirmed', 'Test product one', 'B08TEST0001',
-                    'EAN', '0634562947130', 200, 180, 'DXB3', 24.5, 'AED'],
-                ['774FV9FB', '1F6RD', '2026-08-03', 'Confirmed', 'Test product two', 'B08TEST0002',
-                    'UPC', '634562947131', 100, 100, 'DXB3', 12.0, 'AED'],
-            ]);
+            ->sheet('Line Items', $rows);
+    }
+
+    /**
+     * A packing list in the interim layout, with the shipment name, date and lines the
+     * test needs. The stage is chosen at upload (§J), so this one shape serves both -
+     * the separately shifted FINAL layout has its own helper above.
+     *
+     * @param  array<int, array{0: string, 1: string, 2: int}>  $lines  [po, asin, qty]
+     */
+    public static function shipment(string $shipmentName, array $lines, ?string $shipmentDate = '2026-08-12'): self
+    {
+        $rows = [
+            [null, null, null, 'Shipment Name: '.$shipmentName],
+            [null, null, null, $shipmentDate === null ? null : 'Shipment Date: '.$shipmentDate],
+            [],
+            ['PO', 'ASIN', 'Model Number', 'Title', 'Qty', 'Carton', 'Unit Cost'],
+        ];
+
+        foreach ($lines as $index => [$po, $asin, $qty]) {
+            $rows[] = [$po, $asin, '0634562947130', 'Test product', $qty, (string) ($index + 1), 10.0];
+        }
+
+        return (new self)->sheet('Simple List', $rows);
     }
 
     /**
