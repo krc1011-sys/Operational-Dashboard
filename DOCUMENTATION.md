@@ -4,7 +4,7 @@
 This file records how the spec has actually been built: what exists, how to run it,
 what was decided during the build, and what is still open.
 
-Last updated: **M4 complete — the reconciliation engine is finished.**
+Last updated: **M5 complete — the core screens are live.**
 
 ---
 
@@ -78,7 +78,7 @@ Run the tests with `php artisan test`.
 | **M2** | Upload framework + parser core | ✅ Done |
 | **M3** | Amazon ingest — **checkpoint, verified on real files** | ✅ Done |
 | **M4** | Reconciliation engine — turnaround, deliver-anyway workflow, PO completion | ✅ Done |
-| M5 | Core screens with self-serve filters | ⬜ |
+| **M5** | Core screens with self-serve filters, group-by and export | ✅ Done |
 | M6 | Master grid + net-margin engine | ⬜ |
 | M7 | Money views — **checkpoint** | ⬜ |
 | M8 | Noon channel | ⬜ |
@@ -489,7 +489,109 @@ Full suite: **127 passing**.
 
 ---
 
-## 9. Decisions made during the build
+## 9. M5 — Core screens (done)
+
+Six screens, one navigation bar, and one filter set shared by all of them. Everything
+they show is the engine's own cached figures, narrowed — no screen recomputes anything,
+so a number on a screen and a number in the engine cannot disagree.
+
+### 9.1 The screens
+
+| Screen | Answers | Permission |
+|---|---|---|
+| **Overview** | How are we doing, against the benchmarks? | `view-overview` |
+| **PO lookup** | Everything about one PO, including every ASN its units went into | `view-po-status` |
+| **Fulfilment** | Fill rate and shortfall, per line or rolled up | `view-fulfillment` |
+| **Pending** | What is accepted but not booked onto any delivery | `view-pending` |
+| **Shipments** | Deliveries by ASN, booked against shipped | `view-shipments` |
+| **Committed deliveries** | What is already on its way out, per ASIN | `view-committed-deliveries` |
+
+**Overview** follows the pattern the team already reads every day in Amazon Vendor
+Central (§M): a row of performance tiles, a row of operational tiles, each against its
+own target, each clicking through to the screen that explains it. The thresholds are
+Amazon's own — 95% in-full, ~80% confirmation, 10-day turnaround — and they live in
+`config/operon.php`, not in the view.
+
+**PO lookup's detail page** is §L's specific requirement: search a PO and see all its
+linked ASNs, each with its own date and units, plus the turnaround clock. A delivery
+bundles several POs, so the units shown per delivery are *that PO's* units, not the
+delivery's total.
+
+**Committed deliveries** is the §R DFS overstock fix. It answers one question per ASIN:
+how many units are already booked to ship on a delivery that has not gone yet. Paste the
+ASINs from a DFS order into the filter and it tells you what is already covered — and
+which of them have nothing committed, so those can be ordered freely. Once a delivery
+ships, its units drop off the screen: they are gone, not something to net a new order
+against.
+
+### 9.2 The filter set — built once, used everywhere
+
+§M's rule is that every tab carries the same rich filter set so the team never depends on
+anyone to build a report. *Same* is the operative word, so there is exactly one
+`FilterSet`: date range, channel, FC, brand, category, status, PO number, free-text
+search across ASIN/NIN/barcode/title, the bulk identifier list, and group-by. Each screen
+says which fields it shows; none of them grows its own.
+
+Three things worth knowing about how it behaves:
+
+- **The date range means the PO's order date**, because §L calls that the stable date to
+  anchor time-based reports on. The exception is Shipments, which is about deliveries, so
+  there it means the delivery's own date.
+- **The bulk list can be thousands of ASINs**, which will not fit in a URL. It is parsed
+  once, kept in the session, and only a short key travels in the query string — so paging,
+  exporting and sharing the link all keep the list without re-pasting it. Paste a column
+  straight out of Excel, a comma-separated line, or upload a text file or a spreadsheet.
+- **Brand and category come from the master catalog**, which is not loaded until M6. Until
+  then those dropdowns say so rather than sitting there empty, and grouping by brand puts
+  everything in one honest "not in the catalog yet" bucket instead of dropping rows.
+
+**Group-by** (SKU / brand / category) and **Export** are on every list screen. The CSV
+carries the filters that produced it in its first rows, and writes identifiers as text so
+Excel cannot turn an ASIN into a number and lose a leading zero — the same trap the
+cancellations template avoids on the way in.
+
+### 9.3 Money on operational screens
+
+§O gives three money lenses (margin, buy price, sell price) and says Warehouse gets none.
+The operational screens show a kind of money that fits none of the three neatly: the
+marketplace value of units, which is what shortfall and invoice totals are made of.
+Rather than guess which lens that is, **any of the three unlocks it** — which lands
+exactly where §O does: Warehouse sees units and no AED, everyone else sees both. Enforced
+in the screens *and* in the exports.
+
+This is not the margin gate. Profitability stays out of M5 entirely: Admin-only, behind
+the PIN, at M7.
+
+### 9.4 Correcting a delivery date
+
+Turnaround is measured to the delivery's date, and that date is not always right — an
+Amazon packing list carries the date it was produced, and Noon's file has no reliable
+date at all (§Q). So a delivery's date can now be corrected from its detail page. Saving
+marks it as manually set, so a later re-upload of the packing list cannot quietly
+overwrite what a person entered, and immediately recalculates the turnaround of every PO
+in that delivery. It needs `manage-fulfillment`; everyone else sees the date read-only.
+
+### 9.5 Verified against the real files
+
+The screens were rendered against the genuine sample import, not only test fixtures.
+They report 11 POs, 213 lines, **14,117 units shipped** — the same figure M3 verified by
+hand — and a 3,449-unit shortfall, which is the known 623 on the multi-delivery PO plus
+2,826 on the ten bulk POs whose packing lists have not been supplied. Every number on
+screen traces back to the engine.
+
+### 9.6 Tests
+
+`ReportScreensTest` (26) builds one small world through the real upload pipeline and then
+interrogates every screen about it: each screen behind its own permission, Warehouse
+seeing units but never AED, each filter genuinely narrowing, group-by rolling up, the
+pasted and uploaded bulk lists surviving as shareable links, the CSV contents and their
+money gating, the multi-ISA PO view, the committed lookup excluding already-shipped
+deliveries, and a corrected delivery date moving the PO's turnaround.
+Full suite: **153 passing**.
+
+---
+
+## 10. Decisions made during the build
 
 Recorded here so they are not re-litigated. Anything marked **⚠ assumption** was not
 specified in the blueprint and should be confirmed.
@@ -567,9 +669,31 @@ specified in the blueprint and should be confirmed.
 19. **⚠ assumption — the typed PO date is optional and never overrides the file.** It
     exists only because the single-PO export has no order-date column at all.
 
+**Added at M5:**
+
+20. **⚠ assumption — any one money permission unlocks AED on operational screens.** §O
+    names three money lenses and gives Warehouse none of them; the marketplace value of
+    units fits none of the three neatly. Any of the three showing it lands exactly where
+    §O does. If AED on Fulfilment/Shipments should instead follow one specific lens, it
+    is one method on the User model (`canSeeMoney()`).
+21. **The filter bar POSTs and redirects to a GET link.** A pasted list of thousands of
+    ASINs, or an uploaded file, cannot live in a query string — so the list is stashed in
+    the session and only a key travels. Every screen stays bookmarkable, pageable and
+    exportable with its filters intact.
+22. **The date range means the PO's order date** on every screen except Shipments, where
+    it means the delivery's date. §L anchors time-based reports on the PO date, but a
+    delivery screen filtered by PO date would be surprising.
+23. **⚠ assumption — correcting a delivery date needs `manage-fulfillment`.** It changes
+    a published KPI (turnaround), so it is not open to everyone who can see the screen.
+    Admin, Procurement and Warehouse have it.
+24. **Screens never recompute.** They read the engine's cached columns and narrow them.
+    Anything that needed new arithmetic (grouped roll-ups, shortfall totals) lives in
+    `FulfilmentQuery`, using the same definitions as the engine — so a screen and the
+    engine cannot drift.
+
 ---
 
-## 10. Open questions
+## 11. Open questions
 
 Carried forward from blueprint §H, plus what the build has raised.
 
@@ -577,25 +701,31 @@ Carried forward from blueprint §H, plus what the build has raised.
 |---|---|---|
 | H3 | Final fixed file templates / filenames | **Resolved for Amazon at M3** — all four formats confirmed against real files; filenames stay informational |
 | H4 | DB column names vs migrations | **Resolved at M1** — the model was rebuilt |
-| — | The ⚠ assumptions in §9 above | Awaiting confirmation, not blocking |
+| — | The ⚠ assumptions in §10 above | Awaiting confirmation, not blocking |
 | — | **Cancellation POs are from a different batch** | Netting unproven on real data — see §7.2 |
 | — | **The single-PO export has no order date** | **Worked around at M4** — optional PO-date box on the upload form; the bulk export carries it properly |
-| — | Correcting a delivery date after the fact | Engine supports it (`delivered_on`, `is_manual`); the edit screen comes with M5, and Noon needs it at M8 |
+| — | Correcting a delivery date after the fact | **Done at M5** — editable from the delivery page, marked as manually set, recomputes turnaround |
 | — | Sell-through benchmark for the sell-in/sell-out flag (§P) | Needed by M9 |
 | — | Weighted-average vs latest supplier cost (§S) | Deferred to Phase 3, as specified |
 
 ---
 
-## 11. What M5 needs next
+## 12. What M6 needs next
 
-The engine is complete; M5 is the screens that finally show what it computes:
+The screens are live; M6 is the master catalog behind them:
 
-- **Overview KPIs**, **PO Lookup** with its linked deliveries and days-to-complete,
-  **Fulfilment**, **Pending**, **Shipments by ASN**, and the committed-deliveries lookup.
-- All with the §M self-serve filters: date range, channel, FC, brand, category, status,
-  PO/ASIN search, bulk-ASIN paste, group-by and export.
-- **Editing a delivery date** where it turned out wrong — the engine already recomputes
-  turnaround when it changes, there is just no screen for it yet.
+- **The master grid** (§S): an Excel-like editable screen inside OperON — click-to-edit
+  cells, inline add and delete, saving instantly. Admin-only and behind the PIN. Bulk
+  `.xlsx` load kept for mass updates.
+- **Loading `Master_Products_Sheet.xlsx`**, which immediately switches on the brand and
+  category filters and grouping that M5 built and currently has no data for, and links
+  ASINs to their company product code so cross-channel reporting works at all.
+- **The net-margin engine**: the sheet's P&L formulas become the app's own calc logic,
+  applied to every PO and SKU. Recomputed by us, with the imported figures kept for
+  cross-checking (§S).
+
+Then M7 turns that into the money views — PO-level and SKU-level margin, Admin-only and
+behind the PIN.
 
 ### Useful extra files, when convenient
 
@@ -612,7 +742,7 @@ constructed data:
 
 ---
 
-## 12. Things worth knowing about the data
+## 13. Things worth knowing about the data
 
 Rules that are counter-intuitive and easy to get wrong — all from the blueprint,
 repeated here because they are the source of most potential bugs:

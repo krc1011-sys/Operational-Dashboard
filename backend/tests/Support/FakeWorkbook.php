@@ -81,7 +81,7 @@ class FakeWorkbook
      *
      * @param  array<int, array{0: string, 1: string, 2: int, 3: int}>|null  $lines  [po, asin, requested, accepted]
      */
-    public static function amazonPo(?array $lines = null, string $orderDate = '2026-08-03'): self
+    public static function amazonPo(?array $lines = null, string $orderDate = '2026-08-03', string $fc = 'DXB3'): self
     {
         $lines ??= [
             ['774FV9FB', 'B08TEST0001', 200, 180],
@@ -96,7 +96,7 @@ class FakeWorkbook
 
         foreach ($lines as $index => [$po, $asin, $requested, $accepted]) {
             $rows[] = [$po, '1F6RD', $orderDate, 'Confirmed', 'Test product '.($index + 1), $asin,
-                'EAN', '0634562947130', $requested, $accepted, 'DXB3', 24.5, 'AED'];
+                'EAN', '0634562947130', $requested, $accepted, $fc, 24.5, 'AED'];
         }
 
         return (new self)

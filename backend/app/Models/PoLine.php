@@ -131,18 +131,23 @@ class PoLine extends Model
     /** Powers the §M bulk-ASIN/NIN paste-or-upload filter. */
     public function scopeSkuIn(Builder $query, array $skuIds): Builder
     {
-        return $query->whereIn('sku_id', array_map('trim', $skuIds));
+        return $query->whereIn($query->qualifyColumn('sku_id'), array_map('trim', $skuIds));
     }
 
-    /** Free-text search across ASIN/NIN, barcode and title (§B). */
+    /**
+     * Free-text search across ASIN/NIN, barcode and title (§B).
+     *
+     * Columns are qualified because the reporting screens join this table to `products`
+     * for the brand/category grouping, and both tables have a `barcode`.
+     */
     public function scopeSearch(Builder $query, string $term): Builder
     {
         $term = trim($term);
 
         return $query->where(fn (Builder $q) => $q
-            ->where('sku_id', 'like', "%{$term}%")
-            ->orWhere('barcode', 'like', "%{$term}%")
-            ->orWhere('title', 'like', "%{$term}%")
-            ->orWhere('po_number', 'like', "%{$term}%"));
+            ->where($q->qualifyColumn('sku_id'), 'like', "%{$term}%")
+            ->orWhere($q->qualifyColumn('barcode'), 'like', "%{$term}%")
+            ->orWhere($q->qualifyColumn('title'), 'like', "%{$term}%")
+            ->orWhere($q->qualifyColumn('po_number'), 'like', "%{$term}%"));
     }
 }

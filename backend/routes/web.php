@@ -1,8 +1,14 @@
 <?php
 
 use App\Http\Controllers\CancellationDecisionController;
+use App\Http\Controllers\CommittedDeliveriesController;
+use App\Http\Controllers\FulfilmentController;
 use App\Http\Controllers\MoneyPinController;
+use App\Http\Controllers\OverviewController;
+use App\Http\Controllers\PendingController;
+use App\Http\Controllers\PoLookupController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ShipmentsController;
 use App\Http\Controllers\UploadController;
 use App\Models\Cancellation;
 use App\Models\SourceFile;
@@ -40,6 +46,38 @@ Route::middleware('auth')->group(function () {
     Route::get('/money', fn () => view('money-placeholder'))
         ->middleware(['permission:view-margin', 'money.pin'])
         ->name('money.index');
+
+    /*
+     * The core screens (§M, M5).
+     *
+     * Each answers to GET and POST on the same URL: the filter bar POSTs, because a
+     * pasted list of ASINs or an uploaded file will not fit in a query string, and the
+     * controller turns it straight back into a plain shareable GET link. That way every
+     * screen stays bookmarkable, pageable and exportable with the filters intact.
+     */
+    Route::match(['get', 'post'], '/overview', [OverviewController::class, 'index'])
+        ->middleware('permission:view-overview')->name('overview.index');
+
+    Route::match(['get', 'post'], '/po-lookup', [PoLookupController::class, 'index'])
+        ->middleware('permission:view-po-status')->name('po-lookup.index');
+    Route::get('/po-lookup/{poNumber}', [PoLookupController::class, 'show'])
+        ->middleware('permission:view-po-status')->name('po-lookup.show');
+
+    Route::match(['get', 'post'], '/fulfilment', [FulfilmentController::class, 'index'])
+        ->middleware('permission:view-fulfillment')->name('fulfilment.index');
+
+    Route::match(['get', 'post'], '/pending', [PendingController::class, 'index'])
+        ->middleware('permission:view-pending')->name('pending.index');
+
+    Route::match(['get', 'post'], '/shipments', [ShipmentsController::class, 'index'])
+        ->middleware('permission:view-shipments')->name('shipments.index');
+    Route::get('/shipments/{delivery}', [ShipmentsController::class, 'show'])
+        ->middleware('permission:view-shipments')->name('shipments.show');
+    Route::patch('/shipments/{delivery}/date', [ShipmentsController::class, 'updateDate'])
+        ->middleware('permission:manage-fulfillment')->name('shipments.date');
+
+    Route::match(['get', 'post'], '/committed-deliveries', [CommittedDeliveriesController::class, 'index'])
+        ->middleware('permission:view-committed-deliveries')->name('committed.index');
 
     /*
      * Cancellations, and the "deliver anyway or pull it" queue (§G). Seeing the queue

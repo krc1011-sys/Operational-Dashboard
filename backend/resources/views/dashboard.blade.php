@@ -34,7 +34,21 @@
             </div>
 
             @php
-                // Provisional preview grid - the real navigation arrives at M5.
+                /*
+                 * The permission matrix, live. The screens that exist are links; the ones
+                 * still to be built show as ticks so it stays obvious what a role will get.
+                 * Nothing here is hard-coded per role - it all reads from the seeder.
+                 */
+                $screenRoutes = [
+                    'view-overview' => 'overview.index',
+                    'view-po-status' => 'po-lookup.index',
+                    'view-fulfillment' => 'fulfilment.index',
+                    'view-pending' => 'pending.index',
+                    'view-shipments' => 'shipments.index',
+                    'view-committed-deliveries' => 'committed.index',
+                    'view-cancelled-items' => 'cancellations.index',
+                ];
+
                 $groups = [
                     'Screens' => [
                         'Overview' => 'view-overview',
@@ -81,11 +95,15 @@
                     <h3 class="font-semibold text-lg mb-4">{{ $groupLabel }}</h3>
                     <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
                         @foreach($modules as $label => $perm)
-                            @php($allowed = auth()->user()->can($perm))
-                            <div class="flex items-center gap-2 p-3 rounded border {{ $allowed ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-gray-50 opacity-50' }}">
+                            @php
+                                $allowed = auth()->user()->can($perm);
+                                $route = $allowed ? ($screenRoutes[$perm] ?? null) : null;
+                            @endphp
+                            <{{ $route ? 'a' : 'div' }} @if($route) href="{{ route($route) }}" @endif
+                                class="flex items-center gap-2 p-3 rounded border {{ $allowed ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-gray-50 opacity-50' }} {{ $route ? 'hover:bg-green-100 transition' : '' }}">
                                 <span>{{ $allowed ? '✅' : '⚪' }}</span>
-                                <span class="text-sm">{{ $label }}</span>
-                            </div>
+                                <span class="text-sm {{ $route ? 'underline' : '' }}">{{ $label }}</span>
+                            </{{ $route ? 'a' : 'div' }}>
                         @endforeach
                     </div>
 
@@ -116,7 +134,8 @@
             <p class="text-xs text-gray-500">
                 This grid is generated live from the permission matrix in
                 <code>RolesAndPermissionsSeeder.php</code> — change the seeder, re-run it, and this
-                view updates. No hard-coded role logic anywhere.
+                view updates. No hard-coded role logic anywhere. The ticked screens that are not yet
+                links are the ones still to be built.
             </p>
 
         </div>

@@ -1,0 +1,187 @@
+@php
+    use App\Services\Reporting\FilterSet;
+
+    $money = auth()->user()->canSeeMoney();
+    $days = $order->turnaroundDays();
+    $late = $order->isBreachingBenchmark();
+@endphp
+
+<x-app-layout>
+    <x-slot name="header">
+        <div class="flex items-center gap-3">
+            <a href="{{ route('po-lookup.index') }}" class="text-sm text-teal-800 underline">← All POs</a>
+            <h2 class="font-semibold text-xl text-gray-800 leading-tight font-mono">{{ $order->po_number }}</h2>
+        </div>
+    </x-slot>
+
+    <div class="py-8">
+        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+
+            <div class="bg-white shadow-sm sm:rounded-lg p-6">
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 text-sm">
+                    @foreach([
+                        'Ordered' => $order->order_date?->format('d M Y') ?? 'not in the file',
+                        'Fulfilment centre' => $order->ship_to_fc ?? '—',
+                        'Vendor code' => $order->vendor_code ?? '—',
+                        'Status' => $order->status ?? '—',
+                        'Confirmation rate' => $order->confirmationRate() === null ? '—' : $order->confirmationRate() . '%',
+                        'Cancellation deadline' => $order->cancellation_deadline?->format('d M Y') ?? '—',
+                    ] as $label => $value)
+                        <div>
+                            <div class="text-xs text-gray-500">{{ $label }}</div>
+                            <div class="font-medium">{{ $value }}</div>
+                        </div>
+                    @endforeach
+                </div>
+
+                {{-- §L: the headline turnaround, and the responsiveness measure beside it. --}}
+                <div class="mt-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <x-kpi-tile
+                        label="Turnaround"
+                        :value="$days === null ? '—' : $days . ' days'"
+                        :sub="$order->is_complete
+                            ? 'Completed ' . ($order->completed_on?->format('d M Y') ?? 'date unknown')
+                            : 'Still open — and counting'"
+                        :target="$benchmark . ' days'"
+                        :status="$days === null ? 'neutral' : ($late ? 'bad' : 'good')" />
+
+                    <x-kpi-tile
+                        label="First shipment"
+                        :value="$order->first_shipped_on?->format('d M Y') ?? 'Nothing shipped yet'"
+                        :sub="$order->daysToFirstShipment() === null ? null : $order->daysToFirstShipment() . ' days after the PO'" />
+
+                    <x-kpi-tile
+                        label="Deliveries"
+                        :value="$deliveries->count()"
+                        sub="ASNs this PO's units went into" />
+                </div>
+
+                @if($order->order_date === null)
+                    <p class="mt-4 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-3">
+                        This PO has no order date — the single-PO export does not carry one. It shows its
+                        completion date but no day count. Upload the same PO from the bulk export, or type
+                        the PO date on the upload form, and turnaround appears.
+                    </p>
+                @endif
+            </div>
+
+            {{-- Every ASN this PO went into, with its own date and units (§L). --}}
+            <div class="bg-white shadow-sm sm:rounded-lg p-6 overflow-x-auto">
+                <h3 class="font-semibold text-lg mb-1">Deliveries</h3>
+                <p class="text-sm text-gray-600 mb-4">
+                    One PO's units can be split across several deliveries over time. These are this
+                    PO's units only — each delivery may also carry other POs.
+                </p>
+
+                <table class="min-w-full text-sm">
+                    <thead class="text-left text-gray-500 border-b">
+                        <tr>
+                            <th class="py-2 pe-4">ASN</th>
+                            <th class="py-2 pe-4">Reference</th>
+                            <th class="py-2 pe-4">FC</th>
+                            <th class="py-2 pe-4">Date</th>
+                            <th class="py-2 pe-4 text-right">Booked here</th>
+                            <th class="py-2 text-right">Shipped here</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        @forelse($byDelivery as $deliveryId => $stages)
+                            @php($delivery = $deliveries[$deliveryId] ?? null)
+                            @continue($delivery === null)
+                            <tr>
+                                <td class="py-2 pe-4">
+                                    <a href="{{ route('shipments.show', $delivery) }}"
+                                       class="font-mono text-teal-800 underline">{{ $delivery->asn ?? $delivery->delivery_key }}</a>
+                                </td>
+                                <td class="py-2 pe-4">{{ $delivery->internal_ref ?? '—' }}</td>
+                                <td class="py-2 pe-4">{{ $delivery->fc_code ?? '—' }}</td>
+                                <td class="py-2 pe-4">
+                                    @if($delivery->fulfilmentDate())
+                                        {{ $delivery->fulfilmentDate()->format('d M Y') }}
+                                        @if($delivery->fulfilmentDateIsInferred())
+                                            <span class="text-xs text-gray-500">(upload day)</span>
+                                        @endif
+                                    @elseif($delivery->planned_date)
+                                        {{ $delivery->planned_date->format('d M Y') }}
+                                        <span class="text-xs text-gray-500">(planned — may change)</span>
+                                    @else
+                                        —
+                                    @endif
+                                </td>
+                                <td class="py-2 pe-4 text-right">
+                                    {{ number_format((int) ($stages->firstWhere('stage', $interim)->units ?? 0)) }}
+                                </td>
+                                <td class="py-2 text-right font-medium">
+                                    {{ number_format((int) ($stages->firstWhere('stage', $final)->units ?? 0)) }}
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="6" class="py-6 text-center text-gray-500">
+                                    Nothing booked into a delivery yet.
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+
+            {{-- §F: the real numbers side by side, not just a state label. --}}
+            <div class="bg-white shadow-sm sm:rounded-lg p-6 overflow-x-auto">
+                <h3 class="font-semibold text-lg mb-4">Lines</h3>
+
+                <table class="min-w-full text-sm">
+                    <thead class="text-left text-gray-500 border-b">
+                        <tr>
+                            <th class="py-2 pe-4">ASIN / NIN</th>
+                            <th class="py-2 pe-4 text-right">Requested</th>
+                            <th class="py-2 pe-4 text-right">Accepted</th>
+                            <th class="py-2 pe-4 text-right">Cancelled</th>
+                            <th class="py-2 pe-4 text-right">Net</th>
+                            <th class="py-2 pe-4 text-right">Booked</th>
+                            <th class="py-2 pe-4 text-right">Shipped</th>
+                            <th class="py-2 pe-4 text-right">Not booked</th>
+                            <th class="py-2 pe-4 text-right">Fill %</th>
+                            <th class="py-2">State</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        @foreach($lines as $line)
+                            <tr>
+                                <td class="py-2 pe-4">
+                                    <span class="font-mono">{{ $line->sku_id }}</span>
+                                    <div class="text-xs text-gray-500">{{ Str::limit($line->title, 60) }}</div>
+                                </td>
+                                <td class="py-2 pe-4 text-right">{{ number_format($line->qty_requested) }}</td>
+                                <td class="py-2 pe-4 text-right">{{ number_format($line->qty_accepted) }}</td>
+                                <td class="py-2 pe-4 text-right">{{ number_format($line->qty_cancelled_honoured) }}</td>
+                                <td class="py-2 pe-4 text-right">{{ number_format($line->qty_net_accepted) }}</td>
+                                <td class="py-2 pe-4 text-right">{{ number_format($line->qty_booked) }}</td>
+                                <td class="py-2 pe-4 text-right">{{ number_format($line->qty_shipped) }}</td>
+                                <td class="py-2 pe-4 text-right">{{ number_format($line->qty_not_booked) }}</td>
+                                <td class="py-2 pe-4 text-right">
+                                    {{ $line->fill_rate_pct === null ? '—' : round((float) $line->fill_rate_pct, 1) . '%' }}
+                                </td>
+                                <td class="py-2">
+                                    {{ FilterSet::lineStates()[$line->line_state] ?? $line->line_state }}
+                                    @if($line->has_chargeback_flag)
+                                        <span class="ms-1 text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full">chargeback</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+
+                @if($money)
+                    <p class="text-xs text-gray-500 mt-4">
+                        Marketplace value of what has shipped:
+                        <strong>{{ number_format($lines->sum(fn ($l) => $l->qty_shipped * (float) $l->unit_cost), 2) }} AED</strong>.
+                        Margin and profitability are Admin-only and behind the PIN.
+                    </p>
+                @endif
+            </div>
+
+        </div>
+    </div>
+</x-app-layout>

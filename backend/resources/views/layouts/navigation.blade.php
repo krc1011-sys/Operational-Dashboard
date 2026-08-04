@@ -10,17 +10,32 @@
                     </a>
                 </div>
 
-                <!-- Navigation Links -->
-                <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
-                    <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
-                        {{ __('Dashboard') }}
-                    </x-nav-link>
+                {{--
+                    Every tab is permission-gated, so a role only ever sees the screens §O
+                    gives it. The list itself is data, not markup, so adding a screen is one
+                    line here and one line in the seeder.
+                --}}
+                @php
+                    $tabs = [
+                        ['Overview', 'overview.index', 'overview.*', 'view-overview'],
+                        ['PO lookup', 'po-lookup.index', 'po-lookup.*', 'view-po-status'],
+                        ['Fulfilment', 'fulfilment.index', 'fulfilment.*', 'view-fulfillment'],
+                        ['Pending', 'pending.index', 'pending.*', 'view-pending'],
+                        ['Shipments', 'shipments.index', 'shipments.*', 'view-shipments'],
+                        ['Committed', 'committed.index', 'committed.*', 'view-committed-deliveries'],
+                        ['Cancellations', 'cancellations.index', 'cancellations.*', 'view-cancelled-items'],
+                    ];
+                @endphp
 
-                    @can('view-cancelled-items')
-                        <x-nav-link :href="route('cancellations.index')" :active="request()->routeIs('cancellations.*')">
-                            {{ __('Cancellations') }}
-                        </x-nav-link>
-                    @endcan
+                <!-- Navigation Links -->
+                <div class="hidden space-x-6 sm:-my-px sm:ms-10 sm:flex">
+                    @foreach($tabs as [$label, $route, $pattern, $permission])
+                        @can($permission)
+                            <x-nav-link :href="route($route)" :active="request()->routeIs($pattern)">
+                                {{ __($label) }}
+                            </x-nav-link>
+                        @endcan
+                    @endforeach
 
                     @if(auth()->user()?->canUploadAnything())
                         <x-nav-link :href="route('uploads.index')" :active="request()->routeIs('uploads.*')">
@@ -82,6 +97,14 @@
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                 {{ __('Dashboard') }}
             </x-responsive-nav-link>
+
+            @foreach($tabs ?? [] as [$label, $route, $pattern, $permission])
+                @can($permission)
+                    <x-responsive-nav-link :href="route($route)" :active="request()->routeIs($pattern)">
+                        {{ __($label) }}
+                    </x-responsive-nav-link>
+                @endcan
+            @endforeach
         </div>
 
         <!-- Responsive Settings Options -->
