@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\MoneyPinController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\UploadController;
+use App\Models\SourceFile;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -9,7 +11,8 @@ Route::get('/', function () {
 });
 
 Route::get('/dashboard', function () {
-    return view('dashboard');
+    // The §J freshness nudge rides along on the dashboard.
+    return view('dashboard', ['overdue' => SourceFile::overdueTypes()]);
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
@@ -29,6 +32,20 @@ Route::middleware('auth')->group(function () {
     Route::get('/money', fn () => view('money-placeholder'))
         ->middleware(['permission:view-margin', 'money.pin'])
         ->name('money.index');
+
+    /*
+     * The Upload tab (§J). Per-type permissions are enforced inside the controller,
+     * because which types a user may upload differs per user.
+     */
+    Route::prefix('uploads')->name('uploads.')->group(function () {
+        Route::get('/', [UploadController::class, 'index'])->name('index');
+        Route::post('/', [UploadController::class, 'store'])->name('store');
+        // Declared before the {sourceFile} route so "template" is not read as an id.
+        Route::get('/template/cancellations', [UploadController::class, 'cancellationTemplate'])
+            ->name('cancellation-template');
+        Route::get('/{sourceFile}', [UploadController::class, 'show'])->name('show');
+        Route::get('/{sourceFile}/download', [UploadController::class, 'download'])->name('download');
+    });
 });
 
 require __DIR__.'/auth.php';

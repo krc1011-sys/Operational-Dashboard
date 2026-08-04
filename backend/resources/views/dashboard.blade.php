@@ -8,6 +8,8 @@
     <div class="py-12">
         <div class="max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
 
+            <x-upload-freshness :overdue="$overdue ?? []" />
+
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
                 <p class="text-lg">Welcome, <strong>{{ auth()->user()->name }}</strong></p>
                 <p class="text-gray-600">{{ auth()->user()->email }}</p>

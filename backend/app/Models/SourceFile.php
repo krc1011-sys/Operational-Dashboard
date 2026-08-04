@@ -75,7 +75,8 @@ class SourceFile extends Model
             }
 
             $last = static::lastImportedAt($type);
-            $days = $last?->startOfDay()->diffInDays(Carbon::today());
+            // Carbon 3 returns a float here; whole days are what the banner reports.
+            $days = $last === null ? null : (int) $last->startOfDay()->diffInDays(Carbon::today());
 
             if ($last === null || $days > $cadence) {
                 $overdue[] = ['type' => $type, 'last' => $last, 'days' => $days, 'cadence' => $cadence];

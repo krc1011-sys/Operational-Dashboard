@@ -4,7 +4,7 @@
 This file records how the spec has actually been built: what exists, how to run it,
 what was decided during the build, and what is still open.
 
-Last updated: **M1 complete**.
+Last updated: **M2 complete — stopped at the M3 checkpoint, awaiting the real sample files.**
 
 ---
 
@@ -41,12 +41,20 @@ everything we need).
 
 ```bash
 cd backend
+bash tools/install-php-extensions.sh   # once per Codespace — see below
 composer install
 npm install
 php artisan migrate --seed     # creates tables, roles and demo users
 npm run dev                    # in one terminal
 php artisan serve              # in another
 ```
+
+> **PHP extensions.** The Codespace image ships PHP without `ext-zip`, which is required
+> to open `.xlsx` files (an `.xlsx` is a zip archive). `tools/install-php-extensions.sh`
+> builds and enables it; run it once after creating or rebuilding a Codespace.
+> `ext-gd` is deliberately *not* installed — PhpSpreadsheet only needs it for embedded
+> images, which we never read, so `composer.json` declares it satisfied via
+> `config.platform`.
 
 Demo logins (development only), password `password` for all:
 
@@ -67,8 +75,8 @@ Run the tests with `php artisan test`.
 |---|---|---|
 | **M0** | Permission matrix aligned to §O, launch upload lockdown, money PIN gate | ✅ Done |
 | **M1** | Full data model / migrations | ✅ Done |
-| **M2** | Upload framework + parser core | ⬜ Not started |
-| **M3** | Amazon ingest — **checkpoint, needs real sample files** | ⬜ Not started |
+| **M2** | Upload framework + parser core | ✅ Done |
+| **M3** | Amazon ingest — **checkpoint, needs real sample files** | ⏸ Blocked on files |
 | M4 | Reconciliation engine (fill rate, shortfall, turnaround) | ⬜ |
 | M5 | Core screens with self-serve filters | ⬜ |
 | M6 | Master grid + net-margin engine | ⬜ |
@@ -208,7 +216,71 @@ Full suite: **48 passing**.
 
 ---
 
-## 6. Decisions made during the build
+## 6. M2 — Upload framework (done)
+
+### 6.1 What happens when you upload a file
+
+1. **You choose the file type from a dropdown first.** Nothing is auto-detected. The
+   dropdown only lists types your role may upload — at launch, Admin only.
+2. The screen shows **what will be checked** for that type before you pick a file:
+   expected format, which tab is read, which columns are required.
+3. The file is **saved and logged first**, so even a rejected upload leaves a trace of
+   who tried what and why it bounced.
+4. It is **checked against that type's fingerprint**: extension → does it open → is the
+   right tab there → is there a header row with every required column → is there data.
+5. **Pass** → status *Validated*, with the tab, header row and every column found
+   recorded. **Fail** → status *Rejected*, with a message written for you, not for a
+   developer. Either way, **nothing reaches the data tables unless it passed**.
+
+A rejection reads like:
+
+> You chose "Amazon — Purchase Order (bulk export)", which reads the "Line Items" tab,
+> but this file has no such tab. It contains: "Short Titles", "Packing List",
+> "Simple List". Either the wrong file type was selected, or this is not the file you
+> meant to upload.
+
+### 6.2 The parser core
+
+- **`Workbook` / `Sheet` / `CellValue`** — reads `.xls` *and* `.xlsx` in data-only mode.
+  Formula cells yield their **cached calculated value**, which is what the packing lists
+  need (§K), with a fallback if a cache is ever missing. `CellValue::asText()` keeps
+  identifiers intact — Excel stores `634562947130` as a float, and a naive cast would
+  produce `6.3456294713E+11`.
+- **`HeaderMap`** — the §K "map by header name, not position" rule. Matching ignores
+  case, punctuation and spacing, tries a list of aliases per field, then falls back to a
+  contains-match. This is what lets one parser read both the interim and final packing
+  lists despite every column shifting.
+- **`FileTypeRegistry`** — the §T registry as code: per type, the allowed extensions,
+  acceptable tab names, required and optional columns with their aliases, and a
+  plain-English note explaining the file. **These aliases come from the blueprint's
+  descriptions and are confirmed against the real files at M3.**
+- **Header row is found, not assumed.** The definition's row number is a hint; the
+  validator scores the first dozen rows and picks the best match. A one-row shift in an
+  Amazon export therefore does not break every upload. Covered by a test.
+
+### 6.3 Also delivered
+
+- **Upload audit log** with content hashing, so re-uploading an identical file is
+  detectable.
+- **Freshness nudge** (§J) on the dashboard and upload tab: types with an expected
+  cadence (DFS and sell-out, weekly) warn when stale. POs are event-driven and
+  deliberately never nag.
+- **The blank cancellations template** — the only file the team builds themselves.
+  Downloadable from the upload tab, with the six fixed columns, and PO/ASIN/External ID
+  forced to text so a paste from an email cannot strip a leading zero. It round-trips:
+  a test generates it and feeds it back through its own validator.
+
+### 6.4 Tests
+
+`UploadValidationTest` (18) covers the fingerprint logic including a genuine `.xls`
+round-trip, the shifted header row, and identifier/number/date parsing.
+`UploadFlowTest` (15) covers the HTTP flow: who may reach the tab, wrong-type rejection
+with nothing written, the template download, and the freshness banner.
+Full suite: **81 passing**.
+
+---
+
+## 7. Decisions made during the build
 
 Recorded here so they are not re-litigated. Anything marked **⚠ assumption** was not
 specified in the blueprint and should be confirmed.
@@ -249,21 +321,60 @@ specified in the blueprint and should be confirmed.
 
 ---
 
-## 7. Open questions
+## 8. Open questions
 
 Carried forward from blueprint §H, plus what the build has raised.
 
 | # | Question | Status |
 |---|---|---|
-| H3 | Final fixed file templates / filenames | Being locked per parser as M2–M3 proceed |
-| H4 | DB column names vs migrations | **Resolved at M1** — the model is being rebuilt |
-| — | The ⚠ assumptions in §6 above | Awaiting confirmation, not blocking |
+| H3 | Final fixed file templates / filenames | Cancellations template **locked and generated**; the rest are read as-is and confirmed at M3 |
+| H4 | DB column names vs migrations | **Resolved at M1** — the model was rebuilt |
+| — | The ⚠ assumptions in §7 above | Awaiting confirmation, not blocking |
+| — | **The real sample files** | **Blocks M3** — see below |
 | — | Sell-through benchmark for the sell-in/sell-out flag (§P) | Needed by M9 |
 | — | Weighted-average vs latest supplier cost (§S) | Deferred to Phase 3, as specified |
 
 ---
 
-## 8. Things worth knowing about the data
+## 9. The M3 checkpoint — what happens next
+
+M3 writes the parsers that turn a validated file into rows: Amazon PO (both formats),
+interim and final packing lists, and cancellations. Everything they need is already
+built — the reader, the header matcher, the tables, the audit log. What is missing is
+**the real files**.
+
+### What to drop into the workspace
+
+Put them anywhere in the repo (a `samples/` folder is ideal) and say the word:
+
+| File | Why it's needed |
+|---|---|
+| `POItemExport_*.xls` — a real bulk PO export | Confirm every column alias; the file is `.xls`, not `.xlsx` |
+| A single-PO `PurchaseOrder.xlsx` | The secondary format, which has no PO or FC column |
+| An **interim** packing list | Confirm the Simple List layout, the ASN banner, carton totals |
+| The **matching final** packing list (same ASN) | Confirm the shifted columns and the invoice number |
+| The cancellations mock (`Cancelled items_*.xlsx`) | Confirm the template matches what's actually pasted |
+
+Ideally the 8-ISA PO the blueprint already validated (≈AED 234k, 87 ASINs, 14,740
+accepted, 14,117 shipped, 95.77% fill). Reproducing that number end to end is the
+cleanest possible proof the engine is right.
+
+Sample files may contain real commercial data — they are business records, not code.
+Consider whether they belong in the git history before committing them; a
+`samples/` entry in `.gitignore` keeps them local to the Codespace if you'd rather.
+
+### What M3 will then verify
+
+- Every alias in `FileTypeRegistry` matches a real column name.
+- 126 lines / 10 POs / 7 FCs read out of the sample PO export, with no dropped rows.
+- DXB6 Aug-01 (ASN 22161389743): 5 POs, 85 item rows, 65 ASINs, **468 units**, with
+  **11 carton-total rows skipped**.
+- DXB3 Aug-02 (ASN 22161964743): 2 POs, 9 items, **641 units**.
+- The interim and final for one ASN link up, and their difference is the shortfall.
+
+---
+
+## 10. Things worth knowing about the data
 
 Rules that are counter-intuitive and easy to get wrong — all from the blueprint,
 repeated here because they are the source of most potential bugs:
