@@ -1,15 +1,11 @@
-<x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            Confirm your PIN
-        </h2>
-    </x-slot>
+<x-operon-page title="Confirm your PIN">
+    
 
-    <div class="py-12">
-        <div class="max-w-md mx-auto sm:px-6 lg:px-8">
-            <div class="bg-white shadow-sm sm:rounded-lg p-6">
+    <div class="op-legacy">
+        <div style="display:flex;flex-direction:column;gap:16px">
+            <div class="panel">
 
-                <p class="text-sm text-gray-600 mb-4">
+                <p class="text-sm mb-4" style="color:var(--muted)">
                     This screen shows cost, price or margin figures. Enter your PIN to unlock
                     them for the next {{ config('operon.money_pin_timeout') }} minutes.
                 </p>
@@ -24,7 +20,7 @@
 
                     <div class="flex items-center justify-end mt-4">
                         <a href="{{ route('dashboard') }}"
-                           class="underline text-sm text-gray-600 hover:text-gray-900 mr-4">
+                           class="underline text-sm hover:text-gray-900 mr-4" style="color:var(--muted)">
                             Cancel
                         </a>
                         <x-primary-button>{{ __('Unlock') }}</x-primary-button>
@@ -34,4 +30,4 @@
             </div>
         </div>
     </div>
-</x-app-layout>
+</x-operon-page>

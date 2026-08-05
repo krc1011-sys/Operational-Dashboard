@@ -1,17 +1,10 @@
 @php($showValue = auth()->user()->canSeeOrderValue())
 
-<x-app-layout>
-    <x-slot name="header">
-        <div class="flex items-center gap-3">
-            <a href="{{ route('deliveries.index') }}" class="text-sm text-teal-800 underline">← All deliveries</a>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight font-mono">
-                ASN {{ $delivery->asn ?? $delivery->delivery_key }}
-            </h2>
-        </div>
-    </x-slot>
+<x-operon-page title="Delivery {{ $delivery->asn ?? $delivery->delivery_key }}">
+    
 
-    <div class="py-8">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+    <div class="op-legacy">
+        <div style="display:flex;flex-direction:column;gap:16px">
 
             @if(session('status'))
                 <div class="bg-green-50 border border-green-200 text-green-900 rounded-lg p-4 text-sm">
@@ -19,7 +12,7 @@
                 </div>
             @endif
 
-            <div class="bg-white shadow-sm sm:rounded-lg p-6">
+            <div class="panel">
                 <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 text-sm">
                     @foreach([
                         'Reference' => $delivery->internal_ref ?? '—',
@@ -30,7 +23,7 @@
                         'POs in this delivery' => count($poNumbers),
                     ] as $label => $value)
                         <div>
-                            <div class="text-xs text-gray-500">{{ $label }}</div>
+                            <div class="text-xs" style="color:var(--faint)">{{ $label }}</div>
                             <div class="font-medium">{{ $value }}</div>
                         </div>
                     @endforeach
@@ -39,12 +32,12 @@
                 <div class="mt-4 flex flex-wrap gap-2">
                     @foreach($poNumbers as $poNumber)
                         <a href="{{ route('po-lookup.show', $poNumber) }}"
-                           class="font-mono text-xs px-2 py-1 rounded bg-gray-100 text-teal-800 underline">{{ $poNumber }}</a>
+                           class="font-mono text-xs px-2 py-1 rounded underline" style="color:var(--teal-2)">{{ $poNumber }}</a>
                     @endforeach
                 </div>
 
                 @if($showValue && ($delivery->value_final > 0 || $delivery->value_interim > 0))
-                    <p class="text-sm text-gray-600 mt-4">
+                    <p class="text-sm mt-4" style="color:var(--muted)">
                         Booked value <x-money :amount="(float) $delivery->value_interim" :currency="$delivery->currency" /> ·
                         invoiced <x-money :amount="(float) $delivery->value_final" :currency="$delivery->currency" /> ·
                         shortfall <strong><x-money :amount="(float) $delivery->shortfall_value" :currency="$delivery->currency" /></strong>
@@ -53,9 +46,9 @@
             </div>
 
             {{-- The delivery date drives the PO's turnaround, so it is correctable (§L, §Q). --}}
-            <div class="bg-white shadow-sm sm:rounded-lg p-6">
+            <div class="panel">
                 <h3 class="font-semibold">Delivery date</h3>
-                <p class="text-sm text-gray-600 mt-1">
+                <p class="text-sm mt-1" style="color:var(--muted)">
                     @if($delivery->delivered_on)
                         Currently <strong>{{ $delivery->delivered_on->format('d M Y') }}</strong>{{ $delivery->delivery_date_is_manual ? ' — entered by hand' : ' — read from the final packing list' }}.
                     @elseif($delivery->planned_date)
@@ -84,14 +77,14 @@
             </div>
 
             {{-- §L: shortfall attributable to a specific SKU, not just a delivery total. --}}
-            <div class="bg-white shadow-sm sm:rounded-lg p-6 overflow-x-auto">
+            <div class="panel scroll-x">
                 <h3 class="font-semibold text-lg mb-1">What was booked, and what shipped</h3>
-                <p class="text-sm text-gray-600 mb-4">
+                <p class="text-sm mb-4" style="color:var(--muted)">
                     Per SKU, so a shortfall points at the product that caused it.
                 </p>
 
-                <table class="min-w-full text-sm">
-                    <thead class="text-left text-gray-500 border-b">
+                <table class="tbl">
+                    <thead >
                         <tr>
                             <th class="py-2 pe-4">PO</th>
                             <th class="py-2 pe-4">ASIN / NIN</th>
@@ -101,17 +94,17 @@
                             @if($showValue)<th class="py-2 text-right">Short value</th>@endif
                         </tr>
                     </thead>
-                    <tbody class="divide-y">
+                    <tbody >
                         @foreach($rows as $row)
                             @php($short = max(0, (int) $row->interim - (int) $row->final_qty))
                             <tr>
                                 <td class="py-2 pe-4">
                                     <a href="{{ route('po-lookup.show', $row->po_number) }}"
-                                       class="font-mono text-teal-800 underline">{{ $row->po_number }}</a>
+                                       class="font-mono underline" style="color:var(--teal-2)">{{ $row->po_number }}</a>
                                 </td>
                                 <td class="py-2 pe-4">
                                     <span class="font-mono">{{ $row->sku_id }}</span>
-                                    <div class="text-xs text-gray-500">{{ Str::limit($row->title, 60) }}</div>
+                                    <div class="text-xs" style="color:var(--faint)">{{ Str::limit($row->title, 60) }}</div>
                                 </td>
                                 <td class="py-2 pe-4 text-right">{{ number_format((int) $row->interim) }}</td>
                                 <td class="py-2 pe-4 text-right">{{ number_format((int) $row->final_qty) }}</td>
@@ -134,7 +127,7 @@
                 </table>
 
                 @unless($delivery->has_final)
-                    <p class="text-xs text-gray-500 mt-4">
+                    <p class="text-xs mt-4" style="color:var(--faint)">
                         This delivery has no final packing list yet, so nothing here has shipped and there is
                         no shortfall to show.
                     </p>
@@ -143,4 +136,4 @@
 
         </div>
     </div>
-</x-app-layout>
+</x-operon-page>

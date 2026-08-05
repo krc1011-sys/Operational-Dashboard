@@ -170,9 +170,7 @@
                                                             {{ $line->title }}
                                                         </td>
                                                         <td>
-                                                            <span class="tag {{ match ($line->line_state) {
-                                                                'dispatched' => 'good', 'scheduled' => 'teal',
-                                                                'cancelled' => 'bad', default => 'warn' } }}">
+                                                            <span class="tag {{ match ($line->line_state) { 'dispatched' => 'good', 'scheduled' => 'teal', 'cancelled' => 'bad', default => 'warn' } }}">
                                                                 {{ FilterSet::lineStates()[$line->line_state] ?? $line->line_state }}
                                                             </span>
                                                         </td>

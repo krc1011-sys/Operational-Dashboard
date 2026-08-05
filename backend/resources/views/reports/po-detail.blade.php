@@ -6,18 +6,13 @@
     $late = $order->isBreachingBenchmark();
 @endphp
 
-<x-app-layout>
-    <x-slot name="header">
-        <div class="flex items-center gap-3">
-            <a href="{{ route('po-lookup.index') }}" class="text-sm text-teal-800 underline">← All POs</a>
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight font-mono">{{ $order->po_number }}</h2>
-        </div>
-    </x-slot>
+<x-operon-page title="PO {{ $order->po_number }}">
+    
 
-    <div class="py-8">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+    <div class="op-legacy">
+        <div style="display:flex;flex-direction:column;gap:16px">
 
-            <div class="bg-white shadow-sm sm:rounded-lg p-6">
+            <div class="panel">
                 <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 text-sm">
                     @foreach([
                         'Ordered' => $order->order_date?->format('d M Y') ?? 'not in the file',
@@ -28,7 +23,7 @@
                         'Cancellation deadline' => $order->cancellation_deadline?->format('d M Y') ?? '—',
                     ] as $label => $value)
                         <div>
-                            <div class="text-xs text-gray-500">{{ $label }}</div>
+                            <div class="text-xs" style="color:var(--faint)">{{ $label }}</div>
                             <div class="font-medium">{{ $value }}</div>
                         </div>
                     @endforeach
@@ -57,7 +52,7 @@
                 </div>
 
                 @if($order->order_date === null)
-                    <p class="mt-4 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-3">
+                    <p class="mt-4 text-xs note warn p-3" style="color:var(--warn)">
                         This PO has no order date — the single-PO export does not carry one. It shows its
                         completion date but no day count. Upload the same PO from the bulk export, or type
                         the PO date on the upload form, and turnaround appears.
@@ -66,15 +61,15 @@
             </div>
 
             {{-- Every ASN this PO went into, with its own date and units (§L). --}}
-            <div class="bg-white shadow-sm sm:rounded-lg p-6 overflow-x-auto">
+            <div class="panel scroll-x">
                 <h3 class="font-semibold text-lg mb-1">Deliveries</h3>
-                <p class="text-sm text-gray-600 mb-4">
+                <p class="text-sm mb-4" style="color:var(--muted)">
                     One PO's units can be split across several deliveries over time. These are this
                     PO's units only — each delivery may also carry other POs.
                 </p>
 
-                <table class="min-w-full text-sm">
-                    <thead class="text-left text-gray-500 border-b">
+                <table class="tbl">
+                    <thead >
                         <tr>
                             <th class="py-2 pe-4">ASN</th>
                             <th class="py-2 pe-4">Reference</th>
@@ -84,14 +79,14 @@
                             <th class="py-2 text-right">Shipped here</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y">
+                    <tbody >
                         @forelse($byDelivery as $deliveryId => $stages)
                             @php($delivery = $deliveries[$deliveryId] ?? null)
                             @continue($delivery === null)
                             <tr>
                                 <td class="py-2 pe-4">
-                                    <a href="{{ route('shipments.show', $delivery) }}"
-                                       class="font-mono text-teal-800 underline">{{ $delivery->asn ?? $delivery->delivery_key }}</a>
+                                    <a href="{{ route('deliveries.show', $delivery) }}"
+                                       class="font-mono underline" style="color:var(--teal-2)">{{ $delivery->asn ?? $delivery->delivery_key }}</a>
                                 </td>
                                 <td class="py-2 pe-4">{{ $delivery->internal_ref ?? '—' }}</td>
                                 <td class="py-2 pe-4">{{ $delivery->fc_code ?? '—' }}</td>
@@ -99,11 +94,11 @@
                                     @if($delivery->fulfilmentDate())
                                         {{ $delivery->fulfilmentDate()->format('d M Y') }}
                                         @if($delivery->fulfilmentDateIsInferred())
-                                            <span class="text-xs text-gray-500">(upload day)</span>
+                                            <span class="text-xs" style="color:var(--faint)">(upload day)</span>
                                         @endif
                                     @elseif($delivery->planned_date)
                                         {{ $delivery->planned_date->format('d M Y') }}
-                                        <span class="text-xs text-gray-500">(planned — may change)</span>
+                                        <span class="text-xs" style="color:var(--faint)">(planned — may change)</span>
                                     @else
                                         —
                                     @endif
@@ -117,7 +112,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="py-6 text-center text-gray-500">
+                                <td colspan="6" class="py-6 text-center" style="color:var(--faint)">
                                     Nothing booked into a delivery yet.
                                 </td>
                             </tr>
@@ -127,11 +122,11 @@
             </div>
 
             {{-- §F: the real numbers side by side, not just a state label. --}}
-            <div class="bg-white shadow-sm sm:rounded-lg p-6 overflow-x-auto">
+            <div class="panel scroll-x">
                 <h3 class="font-semibold text-lg mb-4">Lines</h3>
 
-                <table class="min-w-full text-sm">
-                    <thead class="text-left text-gray-500 border-b">
+                <table class="tbl">
+                    <thead >
                         <tr>
                             <th class="py-2 pe-4">ASIN / NIN</th>
                             <th class="py-2 pe-4 text-right">Requested</th>
@@ -145,12 +140,12 @@
                             <th class="py-2">State</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y">
+                    <tbody >
                         @foreach($lines as $line)
                             <tr>
                                 <td class="py-2 pe-4">
                                     <span class="font-mono">{{ $line->sku_id }}</span>
-                                    <div class="text-xs text-gray-500">{{ Str::limit($line->title, 60) }}</div>
+                                    <div class="text-xs" style="color:var(--faint)">{{ Str::limit($line->title, 60) }}</div>
                                 </td>
                                 <td class="py-2 pe-4 text-right">{{ number_format($line->qty_requested) }}</td>
                                 <td class="py-2 pe-4 text-right">{{ number_format($line->qty_accepted) }}</td>
@@ -165,7 +160,7 @@
                                 <td class="py-2">
                                     {{ FilterSet::lineStates()[$line->line_state] ?? $line->line_state }}
                                     @if($line->has_chargeback_flag)
-                                        <span class="ms-1 text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full">chargeback</span>
+                                        <span class="ms-1 text-xs bg-red-100 px-2 py-0.5 rounded-full" style="color:var(--bad)">chargeback</span>
                                     @endif
                                 </td>
                             </tr>
@@ -174,7 +169,7 @@
                 </table>
 
                 @if($showValue)
-                    <p class="text-xs text-gray-500 mt-4">
+                    <p class="text-xs mt-4" style="color:var(--faint)">
                         Marketplace value of what has shipped:
                         <strong><x-money :amount="$lines->sum(fn ($l) => $l->qty_shipped * (float) $l->unit_cost)"
                                          :currency="\App\Support\Currency::single($lines->pluck('currency'))"
@@ -186,4 +181,4 @@
 
         </div>
     </div>
-</x-app-layout>
+</x-operon-page>

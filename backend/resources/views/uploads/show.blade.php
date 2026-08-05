@@ -1,16 +1,14 @@
-<x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">Upload result</h2>
-    </x-slot>
+<x-operon-page title="Upload result">
+    
 
-    <div class="py-12">
-        <div class="max-w-4xl mx-auto sm:px-6 lg:px-8 space-y-6">
+    <div class="op-legacy">
+        <div style="display:flex;flex-direction:column;gap:16px;max-width:900px">
 
-            <div class="bg-white shadow-sm sm:rounded-lg p-6 space-y-3">
+            <div class="shadow-sm sm:rounded-lg p-6 space-y-3">
                 <div class="flex items-start justify-between gap-4">
                     <div>
                         <h3 class="font-semibold text-lg">{{ $file->original_filename }}</h3>
-                        <p class="text-sm text-gray-600">
+                        <p class="text-sm" style="color:var(--muted)">
                             {{ $file->upload_type->label() }} ·
                             uploaded by {{ $file->uploadedBy?->name ?? 'unknown' }}
                             {{ $file->created_at->diffForHumans() }}
@@ -20,12 +18,12 @@
                 </div>
 
                 @if($file->status === \App\Enums\SourceFileStatus::Rejected)
-                    <div class="bg-red-50 border border-red-200 text-red-800 rounded p-4 text-sm">
+                    <div class="note bad p-4 text-sm" style="color:var(--bad)">
                         <p class="font-medium mb-1">This file was rejected. Nothing was imported.</p>
                         <p>{{ $file->rejection_reason }}</p>
                     </div>
                 @elseif($file->status === \App\Enums\SourceFileStatus::Failed)
-                    <div class="bg-red-50 border border-red-200 text-red-800 rounded p-4 text-sm">
+                    <div class="note bad p-4 text-sm" style="color:var(--bad)">
                         <p class="font-medium mb-1">The import failed part-way.</p>
                         <p>{{ $file->rejection_reason }}</p>
                     </div>
@@ -58,25 +56,25 @@
             </div>
 
             @if($file->summary)
-                <div class="bg-white shadow-sm sm:rounded-lg p-6">
+                <div class="panel">
                     <h3 class="font-semibold mb-3">What we read</h3>
                     <dl class="text-sm space-y-2">
                         @if(data_get($file->summary, 'sheet'))
                             <div class="flex gap-3">
-                                <dt class="w-40 text-gray-500">Tab</dt>
+                                <dt class="w-40" style="color:var(--faint)">Tab</dt>
                                 <dd>{{ data_get($file->summary, 'sheet') }}</dd>
                             </div>
                         @endif
                         @if(data_get($file->summary, 'header_row'))
                             <div class="flex gap-3">
-                                <dt class="w-40 text-gray-500">Header row</dt>
+                                <dt class="w-40" style="color:var(--faint)">Header row</dt>
                                 <dd>row {{ data_get($file->summary, 'header_row') }}</dd>
                             </div>
                         @endif
                         @if(data_get($file->summary, 'headers_found'))
                             <div class="flex gap-3">
-                                <dt class="w-40 text-gray-500">Columns found</dt>
-                                <dd class="text-gray-700">
+                                <dt class="w-40" style="color:var(--faint)">Columns found</dt>
+                                <dd style="color:var(--muted)">
                                     {{ implode(', ', data_get($file->summary, 'headers_found')) }}
                                 </dd>
                             </div>
@@ -86,9 +84,9 @@
             @endif
 
             @if($file->warnings)
-                <div class="bg-white shadow-sm sm:rounded-lg p-6">
+                <div class="panel">
                     <h3 class="font-semibold mb-3">Worth knowing</h3>
-                    <ul class="list-disc list-inside text-sm text-gray-700 space-y-1">
+                    <ul class="list-disc list-inside text-sm space-y-1" style="color:var(--muted)">
                         @foreach($file->warnings as $warning)
                             <li>{{ $warning }}</li>
                         @endforeach
@@ -101,7 +99,7 @@
                     ← Back to uploads
                 </a>
                 @if($file->stored_path)
-                    <a href="{{ route('uploads.download', $file) }}" class="text-sm text-gray-600 underline">
+                    <a href="{{ route('uploads.download', $file) }}" class="text-sm underline" style="color:var(--muted)">
                         Download the file as uploaded
                     </a>
                 @endif
@@ -109,4 +107,4 @@
 
         </div>
     </div>
-</x-app-layout>
+</x-operon-page>

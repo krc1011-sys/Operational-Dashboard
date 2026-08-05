@@ -1,12 +1,8 @@
-<x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            OperON
-        </h2>
-    </x-slot>
+<x-operon-page title="Dashboard">
+    
 
-    <div class="py-12">
-        <div class="max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
+    <div class="op-legacy">
+        <div style="display:flex;flex-direction:column;gap:16px">
 
             <x-upload-freshness :overdue="$overdue ?? []" />
 
@@ -20,13 +16,13 @@
                 </div>
             @endif
 
-            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
+            <div class="overflow-hidden shadow-sm sm:rounded-lg p-6">
                 <p class="text-lg">Welcome, <strong>{{ auth()->user()->name }}</strong></p>
-                <p class="text-gray-600">{{ auth()->user()->email }}</p>
+                <p style="color:var(--muted)">{{ auth()->user()->email }}</p>
                 <p class="mt-2">
                     Role:
                     @forelse(auth()->user()->getRoleNames() as $role)
-                        <span class="inline-block bg-teal-100 text-teal-800 text-sm px-3 py-1 rounded-full font-medium">{{ $role }}</span>
+                        <span class="inline-block bg-teal-100 text-sm px-3 py-1 rounded-full font-medium" style="color:var(--teal-2)">{{ $role }}</span>
                     @empty
                         <span class="text-red-600">No role assigned</span>
                     @endforelse
@@ -91,7 +87,7 @@
             @endphp
 
             @foreach($groups as $groupLabel => $modules)
-                <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
+                <div class="overflow-hidden shadow-sm sm:rounded-lg p-6">
                     <h3 class="font-semibold text-lg mb-4">{{ $groupLabel }}</h3>
                     <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
                         @foreach($modules as $label => $perm)
@@ -100,7 +96,7 @@
                                 $route = $allowed ? ($screenRoutes[$perm] ?? null) : null;
                             @endphp
                             <{{ $route ? 'a' : 'div' }} @if($route) href="{{ route($route) }}" @endif
-                                class="flex items-center gap-2 p-3 rounded border {{ $allowed ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-gray-50 opacity-50' }} {{ $route ? 'hover:bg-green-100 transition' : '' }}">
+                                class="flex items-center gap-2 p-3 rounded border {{ $allowed ? 'border-green-300 bg-green-50' : 'border-gray-200 opacity-50' }} {{ $route ? 'hover:bg-green-100 transition' : '' }}">
                                 <span>{{ $allowed ? '✅' : '⚪' }}</span>
                                 <span class="text-sm {{ $route ? 'underline' : '' }}">{{ $label }}</span>
                             </{{ $route ? 'a' : 'div' }}>
@@ -108,7 +104,7 @@
                     </div>
 
                     @if($groupLabel === 'Uploads' && config('operon.uploads_admin_only'))
-                        <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-3 mt-4">
+                        <p class="text-xs text-amber-700 note warn p-3 mt-4">
                             <strong>Launch mode:</strong> all uploads are Admin-only. The full matrix
                             (Procurement uploads POs, Warehouse uploads packing lists) is already built —
                             set <code>OPERON_UPLOADS_ADMIN_ONLY=false</code> and re-seed to switch it on.
@@ -116,7 +112,7 @@
                     @endif
 
                     @if($groupLabel === 'Money (also needs the PIN)')
-                        <p class="text-xs text-gray-600 mt-4">
+                        <p class="text-xs mt-4" style="color:var(--muted)">
                             @if(\App\Http\Middleware\EnsureMoneyPinVerified::verified(request()))
                                 🔓 PIN confirmed for this session.
                                 <a href="{{ route('money-pin.lock') }}"
@@ -131,7 +127,7 @@
                 </div>
             @endforeach
 
-            <p class="text-xs text-gray-500">
+            <p class="text-xs" style="color:var(--faint)">
                 This grid is generated live from the permission matrix in
                 <code>RolesAndPermissionsSeeder.php</code> — change the seeder, re-run it, and this
                 view updates. No hard-coded role logic anywhere. The ticked screens that are not yet
@@ -140,4 +136,4 @@
 
         </div>
     </div>
-</x-app-layout>
+</x-operon-page>

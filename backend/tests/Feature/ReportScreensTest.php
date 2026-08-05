@@ -393,7 +393,8 @@ class ReportScreensTest extends TestCase
             ->assertSee('774FV9FB')
             ->assertSee('1L5KQKGM')
             // 1L5KQKGM: ordered 5 Aug, all 50 units shipped 9 Aug = complete in 4 days.
-            ->assertSee('Complete in 4 days');
+            // The tag abbreviates days to "4d" to keep the column narrow.
+            ->assertSee('Complete in 4d');
     }
 
     public function test_filtering_the_po_list_by_status(): void

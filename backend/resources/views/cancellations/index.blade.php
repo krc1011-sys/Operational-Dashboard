@@ -1,10 +1,8 @@
-<x-app-layout>
-    <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">Cancellations</h2>
-    </x-slot>
+<x-operon-page title="Cancellations">
+    
 
-    <div class="py-8">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+    <div class="op-legacy">
+        <div style="display:flex;flex-direction:column;gap:16px">
 
             @if(session('status'))
                 <div class="bg-green-50 border border-green-200 text-green-900 rounded-lg p-4 text-sm">
@@ -19,7 +17,7 @@
             @endif
 
             {{-- The queue: cancellations the system refused to guess about (§G). --}}
-            <div class="bg-white shadow-sm sm:rounded-lg p-6">
+            <div class="panel">
                 <h3 class="font-semibold text-lg">
                     Needs your decision
                     @if($pending->isNotEmpty())
@@ -29,14 +27,14 @@
                     @endif
                 </h3>
 
-                <p class="text-sm text-gray-600 mt-2 max-w-3xl">
+                <p class="text-sm mt-2 max-w-3xl" style="color:var(--muted)">
                     Amazon has cancelled units that we had already booked into a delivery, or already
                     shipped. Nothing has been netted off — no figure moves until you answer, so what
                     you see on every other screen is still the picture you had before these arrived.
                 </p>
 
                 @if($pending->isEmpty())
-                    <p class="mt-4 text-sm text-gray-500">
+                    <p class="mt-4 text-sm" style="color:var(--faint)">
                         Nothing waiting. Cancellations that only touch units nobody had claimed yet are
                         netted off automatically and never appear here.
                     </p>
@@ -54,8 +52,8 @@
                         <div class="border border-amber-300 bg-amber-50 rounded-lg p-5">
                             <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                                 <span class="font-mono font-semibold">{{ $cancellation->po_number }}</span>
-                                <span class="font-mono text-gray-700">{{ $cancellation->sku_id }}</span>
-                                <span class="text-gray-600 text-sm">{{ $cancellation->description }}</span>
+                                <span class="font-mono" style="color:var(--muted)">{{ $cancellation->sku_id }}</span>
+                                <span class="text-sm" style="color:var(--muted)">{{ $cancellation->description }}</span>
                             </div>
 
                             <p class="mt-3 text-sm">
@@ -72,15 +70,15 @@
                                     'Still free' => $free,
                                     'Cancelled' => $cancellation->qty_cancelled,
                                 ] as $label => $value)
-                                    <div class="bg-white border border-amber-200 rounded p-3">
-                                        <div class="text-xs text-gray-500">{{ $label }}</div>
+                                    <div class="border border-amber-200 rounded p-3">
+                                        <div class="text-xs" style="color:var(--faint)">{{ $label }}</div>
                                         <div class="font-semibold">{{ number_format((int) $value) }}</div>
                                     </div>
                                 @endforeach
                             </div>
 
                             @if($stuck > 0)
-                                <p class="mt-3 text-sm text-red-800 bg-red-50 border border-red-200 rounded p-3">
+                                <p class="mt-3 text-sm note bad p-3" style="color:var(--bad)">
                                     <strong>{{ number_format($stuck) }}</strong> of these units have already
                                     shipped and cannot be pulled back whichever way you answer. Those units stay
                                     counted as delivered, and the line is flagged for chargeback exposure.
@@ -107,7 +105,7 @@
                                     </button>
                                 </form>
 
-                                <p class="mt-2 text-xs text-gray-600">
+                                <p class="mt-2 text-xs" style="color:var(--muted)">
                                     <strong>Pull it</strong> — take {{ number_format(min($cancellation->qty_cancelled, $pullable)) }}
                                     unit(s) back off the delivery and off accepted. ·
                                     <strong>Deliver anyway</strong> — send all
@@ -115,7 +113,7 @@
                                     as delivered and we accept the chargeback risk.
                                 </p>
                             @else
-                                <p class="mt-4 text-xs text-gray-600">
+                                <p class="mt-4 text-xs" style="color:var(--muted)">
                                     You can see this queue but not answer it. Answering is Admin-only for
                                     now — it commits us to shipping, or not shipping, against Amazon's
                                     cancellation.
@@ -127,19 +125,19 @@
             </div>
 
             {{-- What we shipped despite a cancellation: the chargeback exposure (§G, §M). --}}
-            <div class="bg-white shadow-sm sm:rounded-lg p-6">
+            <div class="panel">
                 <h3 class="font-semibold text-lg">Chargeback exposure</h3>
-                <p class="text-sm text-gray-600 mt-2 max-w-3xl">
+                <p class="text-sm mt-2 max-w-3xl" style="color:var(--muted)">
                     Units we sent after Amazon cancelled them. Amazon's own notice says anything shipped
                     after the notification can be charged back, so this list is the running risk.
                 </p>
 
                 @if($exposure->isEmpty())
-                    <p class="mt-4 text-sm text-gray-500">None. Nothing has been shipped against a cancellation.</p>
+                    <p class="mt-4 text-sm" style="color:var(--faint)">None. Nothing has been shipped against a cancellation.</p>
                 @else
                     <div class="mt-4 overflow-x-auto">
-                        <table class="min-w-full text-sm">
-                            <thead class="text-left text-gray-500 border-b">
+                        <table class="tbl">
+                            <thead >
                                 <tr>
                                     <th class="py-2 pe-4">PO</th>
                                     <th class="py-2 pe-4">ASIN</th>
@@ -150,23 +148,23 @@
                                     <th class="py-2">Note</th>
                                 </tr>
                             </thead>
-                            <tbody class="divide-y">
+                            <tbody >
                                 @foreach($exposure as $row)
                                     <tr>
                                         <td class="py-2 pe-4 font-mono">{{ $row->po_number }}</td>
                                         <td class="py-2 pe-4 font-mono">{{ $row->sku_id }}</td>
                                         <td class="py-2 pe-4 text-right">{{ number_format($row->qty_cancelled) }}</td>
-                                        <td class="py-2 pe-4 text-right font-semibold text-red-700">
+                                        <td class="py-2 pe-4 text-right font-semibold" style="color:var(--bad)">
                                             {{ number_format($row->qty_delivered_anyway) }}
                                         </td>
                                         <td class="py-2 pe-4">{{ $row->resolution->label() }}</td>
-                                        <td class="py-2 pe-4 text-gray-600">
+                                        <td class="py-2 pe-4" style="color:var(--muted)">
                                             {{ $row->resolvedBy?->name ?? '—' }}
                                             @if($row->resolved_at)
                                                 <span class="text-xs">{{ $row->resolved_at->format('d M Y') }}</span>
                                             @endif
                                         </td>
-                                        <td class="py-2 text-gray-600">{{ $row->resolution_note }}</td>
+                                        <td class="py-2" style="color:var(--muted)">{{ $row->resolution_note }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -175,7 +173,7 @@
                 @endif
             </div>
 
-            <div class="bg-white shadow-sm sm:rounded-lg p-6 text-sm text-gray-600 space-y-1">
+            <div class="shadow-sm sm:rounded-lg p-6 text-sm space-y-1" style="color:var(--muted)">
                 <p><strong>{{ number_format($netted) }}</strong> unit(s) have been netted off accepted quantities in total.</p>
                 @if($waiting > 0)
                     <p>
@@ -187,4 +185,4 @@
 
         </div>
     </div>
-</x-app-layout>
+</x-operon-page>

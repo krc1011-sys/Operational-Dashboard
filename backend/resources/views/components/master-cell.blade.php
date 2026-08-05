@@ -2,9 +2,11 @@
     One cell of the master grid.
 
     Editable for an Admin who has entered the PIN, plain text for everyone else — the
-    same cell, so the grid does not change shape depending on who is looking at it. The
-    input saves when you leave it, which is what makes this feel like a spreadsheet
-    rather than a form (§S Path A).
+    same cell either way, so the grid does not change shape depending on who is looking
+    at it. The input saves when you leave it, which is what makes this feel like a
+    spreadsheet rather than a form (§S Path A).
+
+    Borderless until hovered so a screenful of inputs reads as a table, not a form.
 --}}
 @props([
     'editable' => false,
@@ -21,13 +23,17 @@
         value="{{ $value }}"
         data-original="{{ $value }}"
         @change="save($el, '{{ $kind }}', {{ $id }}, '{{ $field }}')"
-        class="border-transparent hover:border-gray-300 focus:border-teal-500 focus:ring-teal-500
-               rounded text-sm bg-transparent transition-colors
-               {{ $narrow ? 'w-20 px-1 py-0.5 text-xs' : 'w-full px-2 py-1' }}
-               {{ $align === 'right' ? 'text-right' : '' }}"
+        class="inp"
+        style="border-color:transparent;background:transparent;
+               {{ $narrow ? 'width:74px;padding:2px 4px;font-size:10.5px;' : 'min-width:110px;padding:4px 6px;' }}
+               {{ $align === 'right' ? 'text-align:right;' : '' }}"
+        onmouseover="this.style.borderColor='var(--border-2)'"
+        onmouseout="if(document.activeElement!==this)this.style.borderColor='transparent'"
+        onblur="this.style.borderColor='transparent'"
     >
 @else
-    <span class="block {{ $narrow ? 'text-xs' : 'px-2 py-1' }} {{ $align === 'right' ? 'text-right' : '' }}">
+    <span style="display:block;{{ $narrow ? 'font-size:10.5px;' : 'padding:4px 6px;' }}
+                 {{ $align === 'right' ? 'text-align:right;' : '' }}">
         {{ $value === null || $value === '' ? '—' : $value }}
     </span>
 @endif
