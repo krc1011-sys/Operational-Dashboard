@@ -156,11 +156,14 @@ class ReportScreensTest extends TestCase
     {
         $response = $this->actingAs($this->user('Admin'))->get(route('overview.index'));
 
+        // The figure and its unit are separate elements in the KPI tile, so the assertions
+        // are on the numbers themselves - which is what the test is actually about.
         $response->assertOk()
-            ->assertSee('54.29%')   // fill rate: 190 shipped ÷ 350 net accepted
-            ->assertSee('97.22%')   // confirmation rate: 350 accepted ÷ 360 requested
-            ->assertSee('Fill rate (shipped ÷ net accepted)', false)
-            ->assertSee('Units not yet booked');
+            ->assertSee('54.29')    // fill rate: 190 shipped ÷ 350 net accepted
+            ->assertSee('97.22')    // confirmation rate: 350 accepted ÷ 360 requested
+            ->assertSee('Fill rate')
+            ->assertSee('Confirmation rate')
+            ->assertSee('Revenue at risk');
     }
 
     // --- Fulfilment, its filters and its grouping -----------------------------

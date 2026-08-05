@@ -7,6 +7,7 @@ use App\Models\Delivery;
 use App\Models\PurchaseOrder;
 use App\Services\Reporting\FilterSet;
 use App\Services\Reporting\FulfilmentQuery;
+use App\Services\Reporting\OverviewPanels;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -44,6 +45,9 @@ class OverviewController extends Controller
         $open = (clone $orders)->where('is_complete', false);
         $late = (clone $open)->breachingBenchmark()->count();
 
+        // The v3 panels. Read-only views over the same cached columns (DESIGN_BRIEF §8).
+        $panels = new OverviewPanels($filters);
+
         return view('reports.overview', [
             'filters' => $filters,
             'totals' => $totals,
@@ -55,6 +59,12 @@ class OverviewController extends Controller
             'awaitingFinal' => Delivery::awaitingFinal()->count(),
             'needsDecision' => Cancellation::needsDecision()->count(),
             'chargebackUnits' => (int) Cancellation::chargebackExposure()->sum('qty_delivered_anyway'),
+            'fcs' => $panels->fulfilmentCentres(),
+            'channels' => $panels->channelMix(),
+            'sellThrough' => $panels->sellThrough(),
+            'alerts' => $panels->alerts(),
+            'inFlight' => $panels->inFlight(),
+            'coverage' => $panels->catalogCoverage(),
         ]);
     }
 }
