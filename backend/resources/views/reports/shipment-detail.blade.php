@@ -45,9 +45,9 @@
 
                 @if($showValue && ($delivery->value_final > 0 || $delivery->value_interim > 0))
                     <p class="text-sm text-gray-600 mt-4">
-                        Booked value {{ number_format((float) $delivery->value_interim, 2) }} AED ·
-                        invoiced {{ number_format((float) $delivery->value_final, 2) }} AED ·
-                        shortfall <strong>{{ number_format((float) $delivery->shortfall_value, 2) }} AED</strong>
+                        Booked value <x-money :amount="(float) $delivery->value_interim" :currency="$delivery->currency" /> ·
+                        invoiced <x-money :amount="(float) $delivery->value_final" :currency="$delivery->currency" /> ·
+                        shortfall <strong><x-money :amount="(float) $delivery->shortfall_value" :currency="$delivery->currency" /></strong>
                     </p>
                 @endif
             </div>
@@ -98,7 +98,7 @@
                             <th class="py-2 pe-4 text-right">Booked</th>
                             <th class="py-2 pe-4 text-right">Shipped</th>
                             <th class="py-2 pe-4 text-right">Short</th>
-                            @if($showValue)<th class="py-2 text-right">Short AED</th>@endif
+                            @if($showValue)<th class="py-2 text-right">Short value</th>@endif
                         </tr>
                     </thead>
                     <tbody class="divide-y">
@@ -120,7 +120,12 @@
                                 </td>
                                 @if($showValue)
                                     <td class="py-2 text-right">
-                                        {{ $delivery->has_final ? number_format($short * (float) $row->unit_cost, 2) : '—' }}
+                                        @if($delivery->has_final)
+                                            <x-money :amount="$short * (float) $row->unit_cost"
+                                                     :currency="$delivery->currency" />
+                                        @else
+                                            —
+                                        @endif
                                     </td>
                                 @endif
                             </tr>

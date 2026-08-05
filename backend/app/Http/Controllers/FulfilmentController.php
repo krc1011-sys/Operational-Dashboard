@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\PoLine;
 use App\Services\Reporting\CsvExport;
 use App\Services\Reporting\FilterSet;
 use App\Services\Reporting\FulfilmentQuery;
+use App\Support\Currency;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -61,7 +61,8 @@ class FulfilmentController extends Controller
                 'Shipped', 'Fill rate %', 'Shortfall units'];
 
             if ($showValue) {
-                $headers[] = 'Shortfall AED';
+                $headers[] = 'Currency';
+                $headers[] = 'Shortfall value';
             }
 
             $rows = $engine->grouped($filters->groupBy)->map(function (array $row) use ($showValue) {
@@ -69,6 +70,9 @@ class FulfilmentController extends Controller
                     $row['booked'], $row['shipped'], $row['fill_rate'], $row['shortfall_units']];
 
                 if ($showValue) {
+                    // A group whose lines span currencies says so rather than presenting a
+                    // total that silently added dirhams to something else.
+                    $out[] = $row['currency'] ?? 'mixed';
                     $out[] = round($row['shortfall_value'], 2);
                 }
 
@@ -82,8 +86,9 @@ class FulfilmentController extends Controller
             'Net accepted', 'Booked', 'Shipped', 'Not booked', 'Fill rate %', 'Shortfall units'];
 
         if ($showValue) {
+            $headers[] = 'Currency';
             $headers[] = 'Unit cost';
-            $headers[] = 'Shortfall AED';
+            $headers[] = 'Shortfall value';
         }
 
         $rows = function () use ($engine, $showValue) {
@@ -99,6 +104,7 @@ class FulfilmentController extends Controller
                 ];
 
                 if ($showValue) {
+                    $row[] = Currency::code($line->currency);
                     $row[] = (float) $line->unit_cost;
                     $row[] = round($short * (float) $line->unit_cost, 2);
                 }

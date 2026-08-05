@@ -312,7 +312,7 @@ class ReportScreensTest extends TestCase
             $csv = $this->actingAs($this->user($role))
                 ->get(route('fulfilment.index', ['export' => 'csv']))->streamedContent();
 
-            $this->assertStringContainsString('Shortfall AED', $csv, "$role should see order value");
+            $this->assertStringContainsString('Shortfall value', $csv, "$role should see order value");
             $this->assertStringContainsString('Unit cost', $csv, "$role should see unit cost");
         }
     }

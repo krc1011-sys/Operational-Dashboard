@@ -3,6 +3,7 @@
 namespace App\Services\Reporting;
 
 use App\Models\PoLine;
+use App\Support\Currency;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -52,7 +53,9 @@ class FulfilmentQuery
                 COALESCE(SUM('.self::SHORTFALL_UNITS.'), 0) as shortfall_units,
                 COALESCE(SUM('.self::SHORTFALL_VALUE.'), 0) as shortfall_value,
                 COALESCE(SUM(qty_shipped * unit_cost), 0) as shipped_value,
-                COALESCE(SUM(qty_booked * unit_cost), 0) as booked_value
+                COALESCE(SUM(qty_booked * unit_cost), 0) as booked_value,
+                COUNT(DISTINCT currency) as currency_count,
+                MAX(currency) as currency
             ')
             ->first();
 
@@ -74,6 +77,10 @@ class FulfilmentQuery
             'shortfall_value' => (float) $row->shortfall_value,
             'shipped_value' => (float) $row->shipped_value,
             'booked_value' => (float) $row->booked_value,
+            // The currency these totals are in, or null if the filtered lines are in more
+            // than one - in which case the sums above cannot honestly be shown as a figure.
+            'currency' => (int) $row->currency_count > 1 ? null : Currency::code($row->currency),
+            'mixed_currency' => (int) $row->currency_count > 1,
             // Fill rate = shipped ÷ net accepted (§E).
             'fill_rate' => $netAccepted > 0 ? round((int) $row->shipped / $netAccepted * 100, 2) : null,
             // Confirmation rate = accepted ÷ requested (§L). Amazon only - Noon has no
@@ -115,6 +122,8 @@ class FulfilmentQuery
                 COALESCE(SUM(qty_shipped), 0) as shipped,
                 COALESCE(SUM(".self::SHORTFALL_UNITS.'), 0) as shortfall_units,
                 COALESCE(SUM('.self::SHORTFALL_VALUE.'), 0) as shortfall_value,
+                COUNT(DISTINCT po_lines.currency) as currency_count,
+                MAX(po_lines.currency) as currency,
                 MAX(po_lines.title) as title
             ')
             ->groupBy($select)
@@ -131,6 +140,8 @@ class FulfilmentQuery
                 'shipped' => (int) $row->shipped,
                 'shortfall_units' => (int) $row->shortfall_units,
                 'shortfall_value' => (float) $row->shortfall_value,
+                'currency' => (int) $row->currency_count > 1 ? null : Currency::code($row->currency),
+                'mixed_currency' => (int) $row->currency_count > 1,
                 'fill_rate' => $row->net_accepted > 0
                     ? round($row->shipped / $row->net_accepted * 100, 2)
                     : null,

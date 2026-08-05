@@ -13,7 +13,9 @@ use App\Models\PurchaseOrder;
 use App\Models\ShipmentLine;
 use App\Models\SourceFile;
 use App\Models\User;
+use App\Services\Spreadsheet\Workbook;
 use App\Services\Upload\UploadService;
+use App\Support\Currency;
 use Illuminate\Console\Command;
 use Illuminate\Http\UploadedFile;
 
@@ -135,7 +137,7 @@ class VerifySampleFiles extends Command
             return null;
         }
 
-        $workbook = \App\Services\Spreadsheet\Workbook::open($first);
+        $workbook = Workbook::open($first);
 
         try {
             $sheet = $workbook->sheet('Simple List');
@@ -352,10 +354,10 @@ class VerifySampleFiles extends Command
 
             if ($delivery->has_final) {
                 $this->line(sprintf(
-                    '    → final shipped %s units; shortfall %s units / %s AED',
+                    '    → final shipped %s units; shortfall %s units / %s',
                     number_format($delivery->units_final),
                     number_format($delivery->shortfall_units),
-                    number_format((float) $delivery->shortfall_value, 2)
+                    Currency::plain($delivery->shortfall_value, $delivery->currency)
                 ));
             }
 

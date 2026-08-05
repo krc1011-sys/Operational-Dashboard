@@ -12,8 +12,8 @@ use App\Models\ShipmentLine;
 use App\Models\SourceFile;
 use App\Services\Spreadsheet\Sheet;
 use App\Services\Spreadsheet\Workbook;
-use App\Services\Upload\ImportResult;
 use App\Services\Upload\Importer;
+use App\Services\Upload\ImportResult;
 use App\Services\Upload\ValidationResult;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -153,7 +153,9 @@ class AmazonPackingListImporter implements Importer
                 'model_number' => $headers->text($row, 'model number'),
                 'unit_cost' => $unitCost,
                 'line_value' => $lineValue,
-                'currency' => 'AED',
+                // The packing list carries no currency column; it inherits the market's
+                // default rather than a symbol typed into the importer (config/currencies.php).
+                'currency' => config('currencies.default'),
                 'invoice_number' => $headers->text($row, 'invoice number'),
                 'source_row' => $rowNumber,
                 'source_file_id' => $sourceFile->id,

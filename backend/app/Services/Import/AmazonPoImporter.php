@@ -11,8 +11,8 @@ use App\Models\PurchaseOrder;
 use App\Models\SourceFile;
 use App\Services\Spreadsheet\Sheet;
 use App\Services\Spreadsheet\Workbook;
-use App\Services\Upload\ImportResult;
 use App\Services\Upload\Importer;
+use App\Services\Upload\ImportResult;
 use App\Services\Upload\ValidationResult;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -145,7 +145,7 @@ class AmazonPoImporter implements Importer
                     'qty_cancelled_po_file' => $headers->int($row, 'cancelled quantity') ?? 0,
                     'case_size' => $headers->int($row, 'case size'),
                     'unit_cost' => $headers->decimal($row, 'unit cost', 'cost') ?? 0,
-                    'currency' => $headers->text($row, 'currency') ?? 'AED',
+                    'currency' => $headers->text($row, 'currency') ?? config('currencies.default'),
                     'window_start' => $headers->date($row, 'window start'),
                     'window_end' => $headers->date($row, 'window end'),
                     'expected_date' => $headers->date($row, 'expected date'),
@@ -223,7 +223,7 @@ class AmazonPoImporter implements Importer
                 'status' => $headers->text($row, 'status'),
                 'ship_to_raw' => $fc,
                 'ship_to_fc' => $fc ? $this->cleanFc($fc) : null,
-                'currency' => $headers->text($row, 'currency') ?? 'AED',
+                'currency' => $headers->text($row, 'currency') ?? config('currencies.default'),
                 'order_date' => $orderDate,
                 'window_start' => $headers->date($row, 'window start'),
                 'window_end' => $headers->date($row, 'window end'),

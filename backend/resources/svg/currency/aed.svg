@@ -1,0 +1,21 @@
+<!--
+  The UAE Dirham symbol: a slanted Latin "D" struck by two horizontal bars.
+
+  Drawn as a path rather than typed as a character on purpose. The mark is new enough that
+  most installed fonts carry no codepoint for it, so a text symbol renders as a tofu box on
+  exactly the machines we cannot control - a warehouse PC, someone's phone. A path always
+  draws, on every device, in every export-to-PDF, forever.
+
+  It inherits `currentColor` and is sized in `em`, so it takes the colour and size of the
+  text around it with no per-screen styling.
+
+  This is a faithful rendition, not the Central Bank's own artwork. Replacing this single
+  file with the official SVG updates every screen at once - nothing else references it.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M10.2 4.9 L7.8 19.1"/>
+  <path d="M10.2 4.9h2.3a7.1 7.1 0 0 1 -2.0 14.2H7.8"/>
+  <path d="M3.2 10.1h11.6"/>
+  <path d="M2.8 14.2h11.6"/>
+</svg>

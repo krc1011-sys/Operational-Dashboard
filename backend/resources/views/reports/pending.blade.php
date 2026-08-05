@@ -42,7 +42,7 @@
                             <th class="py-2 pe-4 text-right">Net accepted</th>
                             <th class="py-2 pe-4 text-right">Booked</th>
                             <th class="py-2 pe-4 text-right">Not booked</th>
-                            @if($showValue)<th class="py-2 text-right">Value (AED)</th>@endif
+                            @if($showValue)<th class="py-2 text-right">Value not booked</th>@endif
                         </tr>
                     </thead>
                     <tbody class="divide-y">
@@ -63,7 +63,8 @@
                                 <td class="py-2 pe-4 text-right font-semibold">{{ number_format($line->qty_not_booked) }}</td>
                                 @if($showValue)
                                     <td class="py-2 text-right">
-                                        {{ number_format($line->qty_not_booked * (float) $line->unit_cost, 2) }}
+                                        <x-money :amount="$line->qty_not_booked * (float) $line->unit_cost"
+                                                 :currency="$line->currency" />
                                     </td>
                                 @endif
                             </tr>

@@ -55,7 +55,7 @@
                             <th class="py-2 pe-4 text-right">Booked</th>
                             <th class="py-2 pe-4 text-right">Shipped</th>
                             <th class="py-2 pe-4 text-right">Short</th>
-                            @if($showValue)<th class="py-2 pe-4 text-right">Short AED</th>@endif
+                            @if($showValue)<th class="py-2 pe-4 text-right">Short value</th>@endif
                             <th class="py-2">Stage</th>
                         </tr>
                     </thead>
@@ -92,7 +92,10 @@
                                     {{ number_format($delivery->shortfall_units) }}
                                 </td>
                                 @if($showValue)
-                                    <td class="py-2 pe-4 text-right">{{ number_format((float) $delivery->shortfall_value, 2) }}</td>
+                                    <td class="py-2 pe-4 text-right">
+                                        <x-money :amount="(float) $delivery->shortfall_value"
+                                                 :currency="$delivery->currency" />
+                                    </td>
                                 @endif
                                 <td class="py-2">
                                     @if($delivery->has_final)

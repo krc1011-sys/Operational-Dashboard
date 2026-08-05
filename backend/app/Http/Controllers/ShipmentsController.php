@@ -8,6 +8,7 @@ use App\Models\ShipmentLine;
 use App\Services\Import\Reconciler;
 use App\Services\Reporting\CsvExport;
 use App\Services\Reporting\FilterSet;
+use App\Support\Currency;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -114,9 +115,10 @@ class ShipmentsController extends Controller
             'Final units', 'Shortfall units', 'Stage'];
 
         if ($showValue) {
-            $headers[] = 'Interim AED';
-            $headers[] = 'Final AED';
-            $headers[] = 'Shortfall AED';
+            $headers[] = 'Currency';
+            $headers[] = 'Interim value';
+            $headers[] = 'Final value';
+            $headers[] = 'Shortfall value';
         }
 
         $rows = function () use ($query, $showValue) {
@@ -130,6 +132,7 @@ class ShipmentsController extends Controller
                 ];
 
                 if ($showValue) {
+                    $row[] = Currency::code($delivery->currency);
                     $row[] = round((float) $delivery->value_interim, 2);
                     $row[] = round((float) $delivery->value_final, 2);
                     $row[] = round((float) $delivery->shortfall_value, 2);

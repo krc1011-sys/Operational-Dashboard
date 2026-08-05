@@ -795,3 +795,62 @@ Nothing about profitability moved. Cost, profit and margin remain Admin-only and
 
 `User::canSeeOrderValue()` is the single place the rule lives. It returns `true`; the
 `@if` checks stay in the screens and exports so narrowing it again is a one-line change.
+
+### 14.2 Currency is data, not a string in a view
+
+Money in OperON is always a **pair**: an amount, and the currency code stored on the same
+row. Every money-bearing table already carried a `currency` column filled from the source
+file; the screens now actually use it instead of printing "AED" after every number.
+
+**Nothing names a currency any more.** No view, query, export or template contains the
+string `AED`. They all ask the lookup map.
+
+| Piece | Where | What it does |
+|---|---|---|
+| The map | `config/currencies.php` | code → name, decimal places, symbol file |
+| The symbol | `resources/svg/currency/aed.svg` | the mark itself, as a path |
+| The logic | `App\Support\Currency` | formatting, symbol inlining, mixed-currency detection |
+| The screens | `<x-money :amount :currency />` | the only thing a view calls |
+
+#### Why the symbol is an SVG and not a character
+
+The new UAE Dirham mark is recent enough that most installed fonts have no codepoint for
+it. Typed as text it renders as a **tofu box** on precisely the machines we do not control
+— a warehouse PC, someone's phone, a PDF print. Drawn as a path it always renders.
+
+It inherits `currentColor` and is sized in `em`, so it takes the colour and size of the
+text around it and no screen needs its own currency styling. The file is a faithful
+rendition rather than the Central Bank's own artwork; **replacing that one file with the
+official SVG updates every screen at once**, because nothing else references it.
+
+#### Entering KSA is a config change
+
+This is the point of the whole layer. To switch Saudi on:
+
+```php
+// config/currencies.php
+'SAR' => ['name' => 'Saudi Riyal', 'decimals' => 2, 'symbol' => 'sar.svg'],
+```
+
+…and drop `sar.svg` beside `aed.svg`. **That is the entire change** — no screen, query,
+export or migration is touched. `CurrencyTest` proves it: it adds SAR at runtime, with and
+without a symbol file, and asserts it renders correctly end to end. If anyone hardcodes a
+symbol again, those tests are what fail.
+
+#### Three behaviours worth knowing
+
+- **An unknown currency shows its ISO code**, not a borrowed symbol. If a file ever
+  arrives quoting USD, it renders as `USD 1,234.56` — visible, not silently relabelled as
+  dirhams and not a crash.
+- **Decimal places come from the currency**, not the caller. A 3-decimal currency formats
+  with three.
+- **Mixed currencies refuse to total.** Adding dirhams to riyals is meaningless, so when
+  the filtered rows span more than one currency the screen says *"mixed currencies"* and
+  the CSV writes `mixed` instead of a figure. Today everything is AED, so this never
+  triggers — it is there so the first KSA import cannot produce a quietly wrong total.
+
+#### Exports get the code, not the symbol
+
+A spreadsheet cell cannot hold an SVG, so CSVs carry a **`Currency` column** with the ISO
+code beside the value columns, and headers lost their `AED` suffix (`Shortfall AED` →
+`Currency` + `Shortfall value`). `AED` is also what Excel and QuickBooks understand.

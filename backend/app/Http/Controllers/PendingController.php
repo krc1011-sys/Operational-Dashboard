@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\Reporting\CsvExport;
 use App\Services\Reporting\FilterSet;
 use App\Services\Reporting\FulfilmentQuery;
+use App\Support\Currency;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -52,7 +53,8 @@ class PendingController extends Controller
         $headers = ['PO', 'ASIN/NIN', 'Title', 'FC', 'Net accepted', 'Booked', 'Not booked', 'Expected date'];
 
         if ($showValue) {
-            $headers[] = 'Value not booked (AED)';
+            $headers[] = 'Currency';
+            $headers[] = 'Value not booked';
         }
 
         $rows = function () use ($query, $showValue) {
@@ -64,6 +66,7 @@ class PendingController extends Controller
                 ];
 
                 if ($showValue) {
+                    $row[] = Currency::code($line->currency);
                     $row[] = round($line->qty_not_booked * (float) $line->unit_cost, 2);
                 }
 

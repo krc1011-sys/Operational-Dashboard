@@ -176,7 +176,9 @@
                 @if($showValue)
                     <p class="text-xs text-gray-500 mt-4">
                         Marketplace value of what has shipped:
-                        <strong>{{ number_format($lines->sum(fn ($l) => $l->qty_shipped * (float) $l->unit_cost), 2) }} AED</strong>.
+                        <strong><x-money :amount="$lines->sum(fn ($l) => $l->qty_shipped * (float) $l->unit_cost)"
+                                         :currency="\App\Support\Currency::single($lines->pluck('currency'))"
+                                         :mixed="\App\Support\Currency::single($lines->pluck('currency')) === null" /></strong>.
                         Margin and profitability are Admin-only and behind the PIN.
                     </p>
                 @endif

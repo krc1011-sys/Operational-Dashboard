@@ -38,7 +38,9 @@
                                 {{ number_format($totals['shortfall_units']) }} units
                                 @if($showValue)
                                     <span class="text-sm font-normal text-gray-600">
-                                        ({{ number_format($totals['shortfall_value'], 2) }} AED)
+                                        (<x-money :amount="$totals['shortfall_value']"
+                                                  :currency="$totals['currency']"
+                                                  :mixed="$totals['mixed_currency']" />)
                                     </span>
                                 @endif
                             </div>
@@ -66,7 +68,7 @@
                                 <th class="py-2 pe-4 text-right">Shipped</th>
                                 <th class="py-2 pe-4 text-right">Fill %</th>
                                 <th class="py-2 pe-4 text-right">Short</th>
-                                @if($showValue)<th class="py-2 text-right">Short AED</th>@endif
+                                @if($showValue)<th class="py-2 text-right">Short value</th>@endif
                             </tr>
                         </thead>
                         <tbody class="divide-y">
@@ -87,7 +89,11 @@
                                         {{ number_format($row['shortfall_units']) }}
                                     </td>
                                     @if($showValue)
-                                        <td class="py-2 text-right">{{ number_format($row['shortfall_value'], 2) }}</td>
+                                        <td class="py-2 text-right">
+                                            <x-money :amount="$row['shortfall_value']"
+                                                     :currency="$row['currency']"
+                                                     :mixed="$row['mixed_currency']" />
+                                        </td>
                                     @endif
                                 </tr>
                             @empty
@@ -111,7 +117,7 @@
                                 <th class="py-2 pe-4 text-right">Shipped</th>
                                 <th class="py-2 pe-4 text-right">Fill %</th>
                                 <th class="py-2 pe-4 text-right">Short</th>
-                                @if($showValue)<th class="py-2 text-right">Short AED</th>@endif
+                                @if($showValue)<th class="py-2 text-right">Short value</th>@endif
                             </tr>
                         </thead>
                         <tbody class="divide-y">
@@ -145,7 +151,8 @@
                                     </td>
                                     @if($showValue)
                                         <td class="py-2 text-right">
-                                            {{ number_format($short * (float) $line->unit_cost, 2) }}
+                                            <x-money :amount="$short * (float) $line->unit_cost"
+                                                     :currency="$line->currency" />
                                         </td>
                                     @endif
                                 </tr>

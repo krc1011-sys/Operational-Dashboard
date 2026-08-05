@@ -1,7 +1,15 @@
 @php
     use App\Services\Reporting\FulfilmentQuery;
+    use App\Support\Currency;
 
     $showValue = auth()->user()->canSeeOrderValue();
+    // Null when the filtered lines span more than one currency - see FulfilmentQuery.
+    $cur = $totals['currency'];
+    $mixed = $totals['mixed_currency'];
+
+    $shortfallSub = ! $showValue
+        ? 'Accepted but not shipped'
+        : ($mixed ? 'in more than one currency' : Currency::html($totals['shortfall_value'], $cur));
     $fillStatus = FulfilmentQuery::rate($totals['fill_rate'], $benchmarks['fill_rate_target']);
     $confirmStatus = FulfilmentQuery::rate($totals['confirmation_rate'], $benchmarks['confirmation_rate_target']);
     $turnaroundStatus = $averageDays === null
@@ -69,7 +77,7 @@
                     <x-kpi-tile
                         label="Shortfall"
                         :value="number_format($totals['shortfall_units']) . ' units'"
-                        :sub="$showValue ? number_format($totals['shortfall_value'], 2) . ' AED' : 'Accepted but not shipped'"
+                        :sub="$shortfallSub"
                         :status="$totals['shortfall_units'] > 0 ? 'warn' : 'good'"
                         :href="route('fulfilment.index', $filters->query())" />
 
@@ -113,11 +121,13 @@
                     @if($showValue)
                         <div class="border rounded p-3">
                             <div class="text-xs text-gray-500">Shipped value</div>
-                            <div class="font-semibold">{{ number_format($totals['shipped_value'], 2) }} AED</div>
+                            <x-money class="font-semibold block" :amount="$totals['shipped_value']"
+                                     :currency="$cur" :mixed="$mixed" />
                         </div>
                         <div class="border rounded p-3">
                             <div class="text-xs text-gray-500">Booked value</div>
-                            <div class="font-semibold">{{ number_format($totals['booked_value'], 2) }} AED</div>
+                            <x-money class="font-semibold block" :amount="$totals['booked_value']"
+                                     :currency="$cur" :mixed="$mixed" />
                         </div>
                     @endif
                 </div>
