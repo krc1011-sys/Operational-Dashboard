@@ -2,7 +2,8 @@
 
 On `phase-1-build`. Margin corrected to the vendor model after review.
 
-**204 tests passing, 43 verified checks against the real files, no failures.**
+**203 tests passing, 43 verified checks against the real files, no failures.**
+Money displays as plain **"AED 1,234.50"**.
 M3–M5 figures unchanged: 14,117 shipped, 95.77% fill.
 
 ---
@@ -56,8 +57,9 @@ Rates are stored **per row**, because the real file proves they vary:
 | Amazon DFS outliers | 1.0 | 0.80 | 5 | 20.00% |
 
 VC and DFS are identical. The 151 Noon rows banking 0.80 are **all `Category = FnB`**, and
-their own fee column agrees at 21.6%. Hardcoding 22% would have overstated the
-marketplace's cut on every one.
+their own fee column agrees at 21.6%. **Confirmed correct, not an error** — the 22% / 23.56%
+figures stay as the channel defaults for anything the file does not state. Hardcoding 22%
+would have overstated the marketplace's cut on every one of the 151.
 
 ### Reconciliation with the sheet's own columns
 

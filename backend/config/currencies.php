@@ -30,7 +30,18 @@ return [
         'AED' => [
             'name' => 'UAE Dirham',
             'decimals' => 2,
-            'symbol' => 'aed.svg',
+            /*
+             * Displayed as the plain ISO code, "AED 1,234.50".
+             *
+             * The drawn dirham mark is still in the repo at resources/svg/currency/aed.svg
+             * and still works; showing it is this one line:
+             *
+             *     'symbol' => 'aed.svg',
+             *
+             * Everything downstream follows either way - no screen, export or template
+             * names a currency, so switching costs nothing but this value.
+             */
+            'symbol' => null,
         ],
 
         // KSA, when it switches on. Drop `sar.svg` into resources/svg/currency/ and

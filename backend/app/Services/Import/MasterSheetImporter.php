@@ -517,8 +517,11 @@ class MasterSheetImporter implements Importer
     /**
      * Rows whose margin rates are not the channel's standard ones.
      *
-     * Reported once per (channel, rate pair) with a count, not once per row - 151
-     * separate notes saying the same thing would bury the seven that need a decision.
+     * These are NOT errors and need no decision - confirmed with the business: rates vary
+     * by category, and Noon food banking 0.80 of the invoice rather than 0.78 is correct.
+     * They are listed as notes so the variation is visible to anyone reading a margin,
+     * and reported once per (channel, rate pair) with a count rather than once per row -
+     * 151 identical notes would bury the seven items that do need an answer.
      */
     private function raiseMarginRateAnomalies(): void
     {
@@ -548,10 +551,12 @@ class MasterSheetImporter implements Importer
                 channel: $channel,
                 severity: MasterAnomaly::SEVERITY_NOTE,
                 message: sprintf(
-                    '%d %s row(s) use a different marketplace cut from the rest of the channel: '
+                    '%d %s row(s) carry a different marketplace cut from the rest of the channel: '
                     .'the invoice is %s of the retail price and we bank %s of the invoice, so the '
-                    .'marketplace keeps %s%% rather than the usual %s%%. These figures come from the '
-                    .'file itself and are used as given - the standard rates are not forced onto them.',
+                    .'marketplace keeps %s%% rather than the usual %s%%. This is expected - rates '
+                    .'genuinely vary by category, and Noon food is the known case. The figures come '
+                    .'from the file and are used as given; the channel standard is never forced onto '
+                    .'them. Listed so the variation is visible, not because it needs fixing.',
                     $group->row_count,
                     $channel?->label() ?? 'unknown-channel',
                     rtrim(rtrim(number_format((float) $group->invoice_pct_of_rsp, 4), '0'), '.'),

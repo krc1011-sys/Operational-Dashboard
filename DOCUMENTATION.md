@@ -841,7 +841,10 @@ they vary:
 Vendor Central and DFS are identical, as specified. The 151 Noon rows that bank 0.80
 rather than 0.78 are **every one of them `Category = FnB`** — food carries a different back
 margin, and their own `Platform Total Fees %` column says 21.6%, which agrees exactly.
-Hardcoding 22% would have quietly overstated the marketplace's cut on all 151. The rates
+**Confirmed with the business: the 20% back margin on Noon food is correct, not an error.**
+Hardcoding 22% would have quietly overstated the marketplace's cut on all 151. The rate
+variation is listed as a note on the Master screen so anyone reading a margin can see it,
+not because it needs fixing. The rates
 come from the file where it states them and fall back to the channel defaults in
 `config/operon.php` for a product typed into the grid by hand.
 
@@ -1121,16 +1124,26 @@ string `AED`. They all ask the lookup map.
 | The logic | `App\Support\Currency` | formatting, symbol inlining, mixed-currency detection |
 | The screens | `<x-money :amount :currency />` | the only thing a view calls |
 
-#### Why the symbol is an SVG and not a character
+#### AED displays as plain text — and that is a config value
 
-The new UAE Dirham mark is recent enough that most installed fonts have no codepoint for
-it. Typed as text it renders as a **tofu box** on precisely the machines we do not control
-— a warehouse PC, someone's phone, a PDF print. Drawn as a path it always renders.
+Money reads **"AED 1,234.50"**. The ISO code, not a symbol.
 
-It inherits `currentColor` and is sized in `em`, so it takes the colour and size of the
-text around it and no screen needs its own currency styling. The file is a faithful
-rendition rather than the Central Bank's own artwork; **replacing that one file with the
-official SVG updates every screen at once**, because nothing else references it.
+A drawn dirham mark was built first, on the reasoning that the new symbol is recent enough
+that most installed fonts have no codepoint for it and would show a tofu box. That mark is
+still in the repo at `resources/svg/currency/aed.svg` and still works — plain text was
+chosen instead, and the choice is **one config line**:
+
+```php
+// config/currencies.php
+'AED' => ['name' => 'UAE Dirham', 'decimals' => 2, 'symbol' => null],   // "AED 1,234.50"
+'AED' => ['name' => 'UAE Dirham', 'decimals' => 2, 'symbol' => 'aed.svg'],  // the drawn mark
+```
+
+Nothing else changes either way, because no screen, export or template names a currency —
+they all ask the map. `CurrencyTest` covers both states: that AED renders as text today,
+and that switching the mark back on from config still produces an accessible, inheriting
+SVG. The symbol machinery stays tested whether or not AED uses it, so a future currency
+can.
 
 #### Entering KSA is a config change
 

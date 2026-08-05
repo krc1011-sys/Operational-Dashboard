@@ -16,30 +16,40 @@ class CurrencyTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_the_dirham_renders_as_an_inline_svg_not_a_text_glyph(): void
+    /**
+     * AED shows as its plain ISO code, by decision - "AED 1,234.50".
+     *
+     * The drawn mark still exists and still works; it is one config line away. What this
+     * test pins down is that the choice lives in config and not in a view, so it can be
+     * changed back without touching a screen.
+     */
+    public function test_the_dirham_renders_as_plain_text(): void
     {
         $html = Currency::html(1234.5, 'AED')->toHtml();
 
-        $this->assertStringContainsString('<svg', $html);
+        $this->assertStringContainsString('AED', $html);
         $this->assertStringContainsString('1,234.50', $html);
+        $this->assertStringNotContainsString('<svg', $html);
 
-        // The whole point: no text symbol that depends on the viewer having a font for it.
+        // No glyph that depends on the viewer having a font for it, either.
         $this->assertStringNotContainsString('د.إ', $html);
         $this->assertStringNotContainsString('&#x', $html);
     }
 
-    public function test_the_symbol_carries_its_iso_code_for_screen_readers(): void
+    /** Turning the drawn mark back on is a config change and nothing else. */
+    public function test_the_drawn_dirham_can_be_switched_back_on_from_config(): void
     {
-        $this->assertStringContainsString('aria-label="AED"', Currency::symbol('AED')->toHtml());
-    }
+        $this->assertFileExists(resource_path('svg/currency/aed.svg'),
+            'the mark is kept so the decision stays reversible');
 
-    public function test_the_symbol_inherits_the_colour_and_size_of_its_text(): void
-    {
-        $svg = Currency::symbol('AED')->toHtml();
+        config(['currencies.currencies.AED.symbol' => 'aed.svg']);
 
-        // currentColor and em sizing mean no screen needs its own currency styling.
-        $this->assertStringContainsString('currentColor', $svg);
-        $this->assertStringContainsString('em', $svg);
+        $html = Currency::html(1234.5, 'AED')->toHtml();
+
+        $this->assertStringContainsString('<svg', $html);
+        $this->assertStringContainsString('aria-label="AED"', $html, 'named for screen readers');
+        $this->assertStringContainsString('currentColor', $html, 'takes the colour of its text');
+        $this->assertStringContainsString('em', $html, 'takes the size of its text');
     }
 
     public function test_csv_gets_the_iso_code_because_a_cell_cannot_hold_an_svg(): void
@@ -86,7 +96,8 @@ class CurrencyTest extends TestCase
 
     /**
      * An unexpected currency in a file must be visible, not silently relabelled as
-     * dirhams and not a crash.
+     * dirhams and not a crash. Still meaningful with AED on plain text: the point is that
+     * JPY says JPY.
      */
     public function test_an_unknown_currency_shows_its_code_rather_than_borrowing_a_symbol(): void
     {
