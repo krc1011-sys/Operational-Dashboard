@@ -47,8 +47,7 @@
                 ['Overview', 'overview.index', 'overview.*', ['view-overview']],
                 ['PO Lookup', 'po-lookup.index', 'po-lookup.*', ['view-po-status']],
                 ['Fulfilment', 'fulfilment.index', 'fulfilment.*', ['view-fulfillment', 'view-pending']],
-                ['Deliveries', 'shipments.index', 'shipments.*', ['view-shipments']],
-                ['Committed', 'committed.index', 'committed.*', ['view-committed-deliveries']],
+                ['Deliveries', 'deliveries.index', 'deliveries.*', ['view-shipments', 'view-committed-deliveries']],
                 ['Cancellations', 'cancellations.index', 'cancellations.*', ['view-cancelled-items']],
             ];
         @endphp

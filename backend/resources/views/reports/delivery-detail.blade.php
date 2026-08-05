@@ -3,7 +3,7 @@
 <x-app-layout>
     <x-slot name="header">
         <div class="flex items-center gap-3">
-            <a href="{{ route('shipments.index') }}" class="text-sm text-teal-800 underline">← All deliveries</a>
+            <a href="{{ route('deliveries.index') }}" class="text-sm text-teal-800 underline">← All deliveries</a>
             <h2 class="font-semibold text-xl text-gray-800 leading-tight font-mono">
                 ASN {{ $delivery->asn ?? $delivery->delivery_key }}
             </h2>
@@ -68,7 +68,7 @@
                 </p>
 
                 @can('manage-fulfillment')
-                    <form method="POST" action="{{ route('shipments.date', $delivery) }}" class="mt-3 flex flex-wrap items-end gap-3">
+                    <form method="POST" action="{{ route('deliveries.date', $delivery) }}" class="mt-3 flex flex-wrap items-end gap-3">
                         @csrf
                         @method('PATCH')
                         <div>

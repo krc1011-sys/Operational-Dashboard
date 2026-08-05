@@ -62,7 +62,7 @@
                :unit="$mixed ? null : $revenueUnit"
                tone="n"
                :context="number_format($totals['shipped']).' units shipped'"
-               :href="route('shipments.index')" />
+               :href="route('deliveries.index')" />
 
         <x-kpi label="Sell-through"
                :value="$sellThrough['pct'] ?? '—'"
@@ -146,7 +146,7 @@
     <section class="row a">
         {{-- Fulfilment centres: where the volume is and how well each one is served. --}}
         <x-panel title="Fulfilment centres" sub="PO value and fill rate by FC"
-                 link="All deliveries →" :linkHref="route('shipments.index')">
+                 link="All deliveries →" :linkHref="route('deliveries.index')">
             @if ($fcs->isNotEmpty())
                 @php $peak = max(1, $fcs->max('value')); @endphp
 

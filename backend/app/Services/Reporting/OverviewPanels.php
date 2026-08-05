@@ -240,7 +240,7 @@ class OverviewPanels
                 'title' => $awaitingFinal.' deliver'.($awaitingFinal === 1 ? 'y' : 'ies').' booked but not shipped',
                 'detail' => 'Interim packing list uploaded; the final has not arrived',
                 'action' => 'Open →',
-                'href' => route('shipments.index'),
+                'href' => route('deliveries.index'),
             ];
         }
 

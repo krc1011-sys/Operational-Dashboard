@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\CancellationDecisionController;
-use App\Http\Controllers\CommittedDeliveriesController;
+use App\Http\Controllers\DeliveriesController;
 use App\Http\Controllers\FulfilmentController;
 use App\Http\Controllers\MasterController;
 use App\Http\Controllers\MoneyPinController;
@@ -79,14 +79,28 @@ Route::middleware('auth')->group(function () {
     Route::get('/pending', fn () => redirect()->route('fulfilment.index', ['view' => 'outstanding']))
         ->middleware('permission:view-fulfillment|view-pending')->name('pending.index');
 
-    Route::match(['get', 'post'], '/shipments', [ShipmentsController::class, 'index'])
-        ->middleware('permission:view-shipments')->name('shipments.index');
-    Route::get('/shipments/{delivery}', [ShipmentsController::class, 'show'])
-        ->middleware('permission:view-shipments')->name('shipments.show');
-    Route::patch('/shipments/{delivery}/date', [ShipmentsController::class, 'updateDate'])
-        ->middleware('permission:manage-fulfillment')->name('shipments.date');
+    /*
+     * Deliveries — Shipments and Committed merged behind a Booked/Shipped toggle
+     * (DESIGN_BRIEF §8).
+     *
+     * EITHER permission opens it. §O gives Sales `view-committed-deliveries` without
+     * `view-shipments` and Warehouse the reverse, so requiring both - or either one
+     * alone - would have taken a screen from somebody. The controller then offers only
+     * the halves of the toggle a user actually holds.
+     */
+    Route::match(['get', 'post'], '/deliveries', [DeliveriesController::class, 'index'])
+        ->middleware('permission:view-shipments|view-committed-deliveries')->name('deliveries.index');
+    Route::get('/deliveries/{delivery}', [DeliveriesController::class, 'show'])
+        ->middleware('permission:view-shipments')->name('deliveries.show');
+    Route::patch('/deliveries/{delivery}/date', [ShipmentsController::class, 'updateDate'])
+        ->middleware('permission:manage-fulfillment')->name('deliveries.date');
 
-    Route::match(['get', 'post'], '/committed-deliveries', [CommittedDeliveriesController::class, 'index'])
+    // The old URLs still land where they always did.
+    Route::get('/shipments', fn () => redirect()->route('deliveries.index', ['view' => 'shipped']))
+        ->middleware('permission:view-shipments')->name('shipments.index');
+    Route::get('/shipments/{delivery}', fn ($delivery) => redirect()->route('deliveries.show', $delivery))
+        ->middleware('permission:view-shipments')->name('shipments.show');
+    Route::get('/committed-deliveries', fn () => redirect()->route('deliveries.index', ['view' => 'booked']))
         ->middleware('permission:view-committed-deliveries')->name('committed.index');
 
     /*

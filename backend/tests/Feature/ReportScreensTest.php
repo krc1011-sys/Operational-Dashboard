@@ -118,13 +118,9 @@ class ReportScreensTest extends TestCase
         $admin = $this->user('Admin');
 
         foreach (['overview.index', 'po-lookup.index', 'fulfilment.index',
-            'shipments.index', 'committed.index'] as $route) {
+            'deliveries.index'] as $route) {
             $this->actingAs($admin)->get(route($route))->assertOk();
         }
-
-        $this->actingAs($this->user('Sales'))->get(route('shipments.index'))->assertForbidden();
-        $this->actingAs($this->user('Warehouse'))->get(route('committed.index'))->assertForbidden();
-        $this->actingAs($this->user('Warehouse'))->get(route('shipments.index'))->assertOk();
     }
 
     /**
@@ -421,22 +417,34 @@ class ReportScreensTest extends TestCase
             ->assertSee('Still open');
     }
 
-    // --- Shipments ------------------------------------------------------------
+    // --- Deliveries (Shipments + Committed, merged) -----------------------------
 
-    public function test_shipments_lists_deliveries_and_their_shortfall(): void
+    public function test_deliveries_lists_asns_and_their_shortfall(): void
     {
         $this->actingAs($this->user('Admin'))
-            ->get(route('shipments.index'))
+            ->get(route('deliveries.index', ['view' => 'shipped']))
             ->assertOk()
             ->assertSee('22161389743')
-            ->assertSee('22161964743')
-            ->assertSee('Awaiting final');
+            ->assertDontSee('22161964743');   // booked, not shipped
 
         $this->actingAs($this->user('Admin'))
-            ->get(route('shipments.index', ['stage' => 'awaiting_final']))
+            ->get(route('deliveries.index', ['view' => 'booked']))
             ->assertOk()
             ->assertSee('22161964743')
             ->assertDontSee('22161389743');
+    }
+
+    /** An ASN carries several POs, and which ones is the question the warehouse asks. */
+    public function test_expanding_an_asn_shows_its_pos_and_per_sku_shortfall(): void
+    {
+        $delivery = Delivery::where('asn', '22161389743')->sole();
+
+        $this->actingAs($this->user('Admin'))
+            ->get(route('deliveries.index', ['view' => 'shipped', 'expand' => $delivery->id]))
+            ->assertOk()
+            ->assertSee('774FV9FB')
+            ->assertSee('1L5KQKGM')
+            ->assertSee('B08TESTAAA');
     }
 
     public function test_a_delivery_shows_what_was_booked_against_what_shipped(): void
@@ -444,11 +452,34 @@ class ReportScreensTest extends TestCase
         $delivery = Delivery::where('asn', '22161389743')->sole();
 
         $this->actingAs($this->user('Admin'))
-            ->get(route('shipments.show', $delivery))
+            ->get(route('deliveries.show', $delivery))
             ->assertOk()
             ->assertSee('B08TESTAAA')
             ->assertSee('774FV9FB')
             ->assertSee('1L5KQKGM');
+    }
+
+    /**
+     * Merging Shipments and Committed must not cost anybody a screen.
+     *
+     * §O gives Sales the committed lookup without shipments, and Warehouse the reverse,
+     * so each sees only the half of the toggle they hold.
+     */
+    public function test_the_delivery_merge_gives_each_role_only_its_own_half(): void
+    {
+        // Sales: committed only. The booked view opens; the shipped half is not offered.
+        $this->actingAs($this->user('Sales'))
+            ->get(route('deliveries.index'))
+            ->assertOk()
+            ->assertSee('Booked')
+            ->assertSee('22161964743')
+            ->assertDontSee('22161389743');
+
+        // Warehouse: shipments only, and asking for the booked view does not grant it.
+        $this->actingAs($this->user('Warehouse'))
+            ->get(route('deliveries.index', ['view' => 'booked']))
+            ->assertOk()
+            ->assertSee('22161389743');
     }
 
     /** The delivery date decides turnaround, so correcting it has to move the PO figures. */
@@ -459,7 +490,7 @@ class ReportScreensTest extends TestCase
         $this->assertSame(4, PurchaseOrder::where('po_number', '1L5KQKGM')->sole()->days_to_complete);
 
         $this->actingAs($this->user('Admin'))
-            ->patch(route('shipments.date', $delivery), ['delivered_on' => '2026-08-25'])
+            ->patch(route('deliveries.date', $delivery), ['delivered_on' => '2026-08-25'])
             ->assertRedirect();
 
         $delivery->refresh();
@@ -477,31 +508,31 @@ class ReportScreensTest extends TestCase
         $delivery = Delivery::where('asn', '22161389743')->sole();
 
         $this->actingAs($this->user('Sales'))
-            ->patch(route('shipments.date', $delivery), ['delivered_on' => '2026-08-25'])
+            ->patch(route('deliveries.date', $delivery), ['delivered_on' => '2026-08-25'])
             ->assertForbidden();
     }
 
-    // --- Committed deliveries (§R) ---------------------------------------------
-
     /**
-     * The DFS overstock trap: what is already on its way out. Units on a delivery that
-     * has SHIPPED must not appear - they are gone, not something to net an order against.
+     * The DFS overstock trap (§R): what is already on its way out. Units on a delivery
+     * that has SHIPPED must not appear - they are gone, not something to net against.
      */
-    public function test_committed_shows_booked_but_unshipped_units_only(): void
+    public function test_the_booked_view_lists_committed_units_per_sku(): void
     {
         $this->actingAs($this->user('Admin'))
-            ->get(route('committed.index'))
+            ->get(route('deliveries.index', ['view' => 'booked']))
             ->assertOk()
+            ->assertSee('Already committed, per SKU')
             ->assertSee('B08TESTBBB')      // 100 booked on the delivery that has not gone
             ->assertDontSee('B08TESTAAA')  // its delivery already shipped
             ->assertDontSee('B08TESTCCC');
     }
 
-    public function test_committed_answers_for_a_pasted_dfs_order(): void
+    public function test_the_booked_view_answers_for_a_pasted_dfs_order(): void
     {
         $admin = $this->user('Admin');
 
-        $response = $this->actingAs($admin)->post(route('committed.index'), [
+        $response = $this->actingAs($admin)->post(route('deliveries.index'), [
+            'view' => 'booked',
             'sku_list' => "B08TESTBBB\nB08TESTAAA",
         ]);
 
@@ -509,17 +540,16 @@ class ReportScreensTest extends TestCase
             ->assertOk()
             ->assertSee('B08TESTBBB')
             // The one with nothing committed is called out, so it can be ordered freely.
-            ->assertSee('have')
-            ->assertSee('nothing');
+            ->assertSee('nothing committed');
     }
 
-    public function test_the_committed_export_lists_the_units_and_the_next_delivery(): void
+    public function test_the_deliveries_export_carries_the_pos_under_each_asn(): void
     {
         $csv = $this->actingAs($this->user('Admin'))
-            ->get(route('committed.index', ['export' => 'csv']))
+            ->get(route('deliveries.index', ['view' => 'shipped', 'export' => 'csv']))
             ->streamedContent();
 
-        $this->assertStringContainsString("'B08TESTBBB", $csv);
-        $this->assertStringContainsString('2026-08-20', $csv);
+        $this->assertStringContainsString('774FV9FB', $csv);
+        $this->assertStringContainsString('POs', $csv);
     }
 }
