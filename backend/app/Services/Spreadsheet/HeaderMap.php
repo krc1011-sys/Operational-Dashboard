@@ -41,10 +41,17 @@ class HeaderMap
     /**
      * Lower-case, strip punctuation, collapse whitespace.
      * "Ship-to location" and "Ship To Location" both become "ship to location".
+     *
+     * A percent sign becomes the word "pct" rather than being stripped, because it is
+     * the only thing distinguishing two real columns in the master sheet: "Profit" and
+     * "Profit %" sit side by side, and stripping the sign collapsed them onto one key -
+     * so the percentage column could not be addressed by name at all. Aliases without
+     * the sign still match, because "profit" is contained in "profit pct".
      */
     public static function normalise(?string $header): string
     {
         $header = strtolower(trim((string) $header));
+        $header = str_replace('%', ' pct ', $header);
         $header = preg_replace('/[^a-z0-9]+/', ' ', $header) ?? $header;
 
         return trim(preg_replace('/\s+/', ' ', $header) ?? $header);

@@ -24,6 +24,7 @@
                         ['Shipments', 'shipments.index', 'shipments.*', 'view-shipments'],
                         ['Committed', 'committed.index', 'committed.*', 'view-committed-deliveries'],
                         ['Cancellations', 'cancellations.index', 'cancellations.*', 'view-cancelled-items'],
+                        ['Master', 'master.index', 'master.*', 'view-master'],
                     ];
                 @endphp
 

@@ -8,7 +8,11 @@ use App\Enums\Stage;
 use App\Enums\UploadType;
 use App\Models\Cancellation;
 use App\Models\Delivery;
+use App\Models\MasterAnomaly;
 use App\Models\PoLine;
+use App\Models\Product;
+use App\Models\ProductChannelEconomics;
+use App\Models\ProductIdentifier;
 use App\Models\PurchaseOrder;
 use App\Models\ShipmentLine;
 use App\Models\SourceFile;
@@ -120,7 +124,14 @@ class VerifySampleFiles extends Command
             $plan[] = [$path, $type, []];
         }
 
-        // 3. Cancellations last, so they can see the PO lines they refer to.
+        // 3. The master catalog. After the POs so the link-up of existing PO lines to
+        //    their products is exercised the way a real rollout would do it (§K), and
+        //    before the cancellations so nothing is waiting on it.
+        foreach (glob($dir.'/OperON_Master*.xlsx') ?: [] as $path) {
+            $plan[] = [$path, UploadType::MasterSheet, []];
+        }
+
+        // 4. Cancellations last, so they can see the PO lines they refer to.
         foreach (glob($dir.'/Cancelled items*.xlsx') ?: [] as $path) {
             $plan[] = [$path, UploadType::AmazonCancellations, []];
         }
@@ -181,7 +192,99 @@ class VerifySampleFiles extends Command
         $this->reportInterimLists();
         $this->reportTurnaround();
         $this->reportCancellations();
+        $this->reportMasterCatalog();
         $this->reportUnmatched();
+    }
+
+    /**
+     * The master catalog and the net-margin engine (§S, M6).
+     *
+     * The check that matters here is the last one: our own P&L, computed from the
+     * inputs, against the answer the spreadsheet shipped with. The business already
+     * trusts those numbers, so reproducing them exactly is what earns the right to
+     * replace the spreadsheet with the app (§S).
+     */
+    private function reportMasterCatalog(): void
+    {
+        if (Product::count() === 0) {
+            return;
+        }
+
+        $this->line('');
+        $this->components->twoColumnDetail('<options=bold>Master catalog (§S)</>', '');
+
+        $this->line(sprintf('  Products %s · channel rows %s · identifiers %s',
+            number_format(Product::count()),
+            number_format(ProductChannelEconomics::count()),
+            number_format(ProductIdentifier::count())));
+
+        foreach (ProductChannelEconomics::selectRaw('channel, count(*) as c')->groupBy('channel')->get() as $row) {
+            $this->line(sprintf('    %-16s %s', $row->channel->label(), number_format($row->c)));
+        }
+
+        $linked = PoLine::whereNotNull('product_id')->count();
+        $this->line(sprintf('  PO lines now linked to a catalog product: %s of %s',
+            number_format($linked), number_format(PoLine::count())));
+        $this->line('  <fg=gray>This is what switches on the brand and category filters M5 built.</>');
+
+        $this->line('');
+        $this->line('  Our P&L vs the sheet\'s own figures');
+
+        $disagreeing = 0;
+
+        foreach ([
+            'net_receivable' => 'Net receivable',
+            'cogs' => 'COGS',
+            'profit' => 'Profit',
+            'margin_pct' => 'Margin %',
+        ] as $column => $label) {
+            $rows = ProductChannelEconomics::whereNotNull($column.'_imported')->get();
+            $differ = $rows->filter(fn ($e) => abs((float) $e->{$column} - (float) $e->{$column.'_imported'}) >= 0.01);
+            $disagreeing += $differ->count();
+
+            $this->line(sprintf(
+                '  %s %-38s %s of %s%s',
+                $differ->isEmpty() ? '<fg=green>✓</>' : '<fg=yellow>·</>',
+                $label.' matches',
+                number_format($rows->count() - $differ->count()),
+                number_format($rows->count()),
+                $differ->isEmpty() ? '' : '   <fg=yellow>('.$differ->count().' differ)</>'
+            ));
+        }
+
+        /*
+         * The assertion that matters is not that we always agree with the sheet - §S
+         * makes OUR calculation the source of truth, so a disagreement can mean the
+         * sheet is wrong. It is that no disagreement passes unremarked.
+         *
+         * The 49 differences in the real file are the packaging materials: the sheet
+         * totals their COGS as zero while each plainly has a product cost. Our figure is
+         * the right one, and every row is on the review list.
+         */
+        $flagged = MasterAnomaly::where('kind', MasterAnomaly::KIND_DERIVED_DISAGREEMENT)->count();
+
+        $this->row('  Every disagreement is flagged, none silent', $flagged, $disagreeing);
+
+        $noMargin = ProductChannelEconomics::whereNull('profit')->count();
+
+        if ($noMargin > 0) {
+            $this->line(sprintf(
+                '  <fg=gray>%d row(s) have no margin at all: no selling price, so they are things we buy'
+                .' and never sell (the packaging materials). Reported as unknown, not as 0%%.</>',
+                $noMargin
+            ));
+        }
+
+        $review = MasterAnomaly::needsReview()->count();
+        $notes = MasterAnomaly::open()->where('severity', MasterAnomaly::SEVERITY_NOTE)->count();
+
+        $this->line('');
+        $this->line(sprintf('  Flagged for a person: %d needing a decision, %d further note(s)', $review, $notes));
+        $this->line('  <fg=gray>Loaded as they are, never silently corrected.</>');
+
+        foreach (MasterAnomaly::needsReview()->get() as $anomaly) {
+            $this->line('   <fg=yellow>·</> '.$anomaly->message);
+        }
     }
 
     /**

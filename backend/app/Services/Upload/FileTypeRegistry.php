@@ -288,28 +288,59 @@ class FileTypeRegistry
                     'Customer Product Code' => ['customer product code'],
                 ],
                 optionalHeaders: [
+                    /*
+                     * These aliases are confirmed against the real merged master, which is
+                     * why several of them carry the file's own spellings: "Referal Fees",
+                     * "Warehosue / Storage Fees" and "Net Recievable in Hand" are typos in
+                     * the source and are matched as they actually appear. The correct
+                     * spellings are listed too, so fixing the sheet will not break the
+                     * upload either.
+                     */
                     'Customer Code' => ['customer code'],
                     'Customer Name' => ['customer name'],
-                    'Description' => ['description', 'product description', 'title'],
+                    'Product Description' => ['product description', 'description', 'title'],
+                    'Product Short Description' => ['product short description', 'short description'],
                     'Brand' => ['brand'],
                     'Category' => ['category'],
+                    'Sub Category' => ['sub category', 'subcategory', 'apl sub category'],
+                    'Owner' => ['owner', 'apl owner'],
+                    'Origin' => ['origin', 'apl origin', 'country of origin'],
                     'Barcode' => ['barcode', 'gtin', 'ean'],
+                    'Suppliers' => ['suppliers', 'supplier'],
+                    'Cartons' => ['cartons', 'carton'],
+
+                    'RSP with VAT' => ['rsp with vat', 'rsp inc vat', 'rsp including vat'],
+                    'RSP ex VAT' => ['rsp with without vat', 'rsp without vat', 'rsp ex vat', 'rsp'],
                     'Invoice Cost Price' => ['invoice cost price'],
+
+                    'Fulfilment Fees' => ['fulfilment fees', 'fulfillment fees'],
+                    'Referral Fees' => ['referal fees', 'referral fees'],
+                    'Storage Fees' => ['warehosue storage fees', 'warehouse storage fees', 'storage fees'],
+                    'Cat Fees' => ['cat fees', 'category fees'],
+                    'Other Fees' => ['other fees'],
+                    'Platform Total Fees' => ['platform total fees', 'platform fees', 'platform fee'],
+
                     'Product Cost' => ['product cost'],
-                    'RSP' => ['rsp', 'retail selling price'],
-                    'Net Receivable' => ['net receivable'],
-                    'Platform Fees %' => ['platform fees', 'platform fee'],
                     'Marketing' => ['marketing'],
                     'OPEX' => ['opex'],
-                    'Packaging' => ['packaging'],
-                    'COGS' => ['cogs'],
+                    'Packaging Cost' => ['packaging cost', 'packaging'],
+                    'Other Misc Expenses' => ['other misc expenses', 'other miscellaneous expenses'],
+
+                    'Net Receivable' => ['net recievable in hand', 'net receivable in hand', 'net receivable'],
+                    'COGS' => ['cogs cost of goods sold', 'cogs', 'cost of goods sold'],
                     'Profit' => ['profit'],
-                    'Margin %' => ['margin', 'margin percent'],
+                    'Profit pct' => ['profit percent', 'profit %'],
+                    'Margin pct' => ['margin percent', 'margin %', 'margin'],
+
+                    'Currency' => ['currency'],
+                    'Data Flag' => ['data flag', 'data_flag', 'flag'],
                 ],
-                expectedFilename: 'Master_Products_Sheet.xlsx',
-                notes: 'Company Product Code (BD#####) is the canonical product key that '
-                    .'unifies ASIN, NIN and DFS SKUs. Customer Product Code holds the '
-                    .'channel-native id. Never link products by barcode.',
+                expectedFilename: 'OperON_Master_Merged.xlsx',
+                notes: 'One row per PRODUCT x CHANNEL. Company Product Code (BD#####) is the '
+                    .'canonical product key that unifies ASIN, NIN and DFS SKUs; Customer '
+                    .'Product Code holds the channel-native id and Customer Code says which '
+                    .'channel. Never link products by barcode. Rows the sheet has flagged for '
+                    .'review are loaded and listed on the Master screen, never silently fixed.',
             ),
         ];
     }

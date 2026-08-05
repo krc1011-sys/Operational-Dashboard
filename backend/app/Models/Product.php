@@ -9,9 +9,18 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * A physical product in the master catalog, keyed by Company Product Code (§S).
  *
- * Money attributes on this model are visibility-restricted: `view-sku-cost`,
- * `view-sku-price` and `view-margin` decide who may see them, and money screens
- * additionally sit behind the PIN. Never render them without checking.
+ * This model holds what is true of the product no matter who sells it: its code, name,
+ * brand, category, sub-category, owner, origin, barcode, suppliers and carton count.
+ * Anything that changes per channel - price, fees, marketing, margin - lives on
+ * ProductChannelEconomics, because the real master sheet is one row per product x
+ * channel and the economics genuinely differ between them.
+ *
+ * The buy side stays here because §S's cost rule is per product, not per channel: a
+ * product has several suppliers and we take the LATEST price (interim rule, flips to a
+ * weighted average when Supplier-PO uploads land in Phase 3).
+ *
+ * `product_cost` and `supplier_name` are cost data: `view-sku-cost` decides who may see
+ * them and money screens sit behind the PIN as well. Never render them without checking.
  */
 class Product extends Model
 {
@@ -21,17 +30,13 @@ class Product extends Model
 
     /** Columns that must never be shown without a money permission (§O, §S). */
     public const COST_ATTRIBUTES = [
-        'invoice_cost_price', 'product_cost', 'cogs', 'supplier_name',
+        'product_cost', 'supplier_name', 'suppliers',
     ];
 
-    public const PRICE_ATTRIBUTES = [
-        'rsp', 'net_receivable',
-    ];
-
-    public const MARGIN_ATTRIBUTES = [
-        'profit', 'profit_pct', 'margin_pct', 'fulfilment_fee', 'referral_fee',
-        'storage_fee', 'category_fee', 'other_fee', 'platform_fees_pct',
-        'marketing', 'opex', 'packaging',
+    /** What the master grid lets an Admin edit by hand. Identity, not money. */
+    public const EDITABLE = [
+        'name', 'short_description', 'brand', 'category', 'sub_category', 'owner',
+        'origin', 'barcode', 'suppliers', 'cartons', 'product_cost', 'is_active',
     ];
 
     protected function casts(): array
@@ -40,29 +45,38 @@ class Product extends Model
             'is_active' => 'boolean',
             'cost_updated_at' => 'datetime',
             'extra' => 'array',
-            'invoice_cost_price' => 'decimal:4',
+            'cartons' => 'integer',
             'product_cost' => 'decimal:4',
-            'rsp' => 'decimal:4',
-            'fulfilment_fee' => 'decimal:4',
-            'referral_fee' => 'decimal:4',
-            'storage_fee' => 'decimal:4',
-            'category_fee' => 'decimal:4',
-            'other_fee' => 'decimal:4',
-            'platform_fees_pct' => 'decimal:4',
-            'marketing' => 'decimal:4',
-            'opex' => 'decimal:4',
-            'packaging' => 'decimal:4',
-            'net_receivable' => 'decimal:4',
-            'cogs' => 'decimal:4',
-            'profit' => 'decimal:4',
-            'profit_pct' => 'decimal:4',
-            'margin_pct' => 'decimal:4',
         ];
     }
 
     public function identifiers(): HasMany
     {
         return $this->hasMany(ProductIdentifier::class);
+    }
+
+    /** Unit economics, one row per channel this product sells on (§S). */
+    public function economics(): HasMany
+    {
+        return $this->hasMany(ProductChannelEconomics::class);
+    }
+
+    public function anomalies(): HasMany
+    {
+        return $this->hasMany(MasterAnomaly::class);
+    }
+
+    /**
+     * The suppliers list as a real list. The sheet stores them comma-separated because
+     * a product is often bought from more than one.
+     */
+    public function supplierList(): array
+    {
+        return collect(explode(',', (string) $this->suppliers))
+            ->map(fn (string $s) => trim($s))
+            ->filter()
+            ->values()
+            ->all();
     }
 
     public function poLines(): HasMany

@@ -74,4 +74,26 @@ return [
         'noon_retail' => 'Noon Retail',
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Net margin  (blueprint §S — M6)
+    |--------------------------------------------------------------------------
+    */
+
+    // VAT, for turning an RSP that includes it into one that does not. 5% in the UAE.
+    // Sits here rather than in the engine so KSA's 15% is a config change, not a code one.
+    'vat_rate' => 0.05,
+
+    /*
+     | The §S cost rule, as a switch rather than a comment.
+     |
+     | 'latest'   — a product has several suppliers; take the most recent price. The
+     |              interim rule, in force now, and shown as provisional wherever a
+     |              margin built on it appears.
+     | 'weighted' — the weighted average across supplier POs. Needs the Supplier-PO
+     |              uploads that arrive in Phase 3 (§N); selecting it before then would
+     |              have nothing to average.
+     */
+    'cost_basis' => 'latest',
+
 ];

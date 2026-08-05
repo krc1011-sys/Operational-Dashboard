@@ -6,12 +6,12 @@ use App\Enums\UploadType;
 use App\Services\Import\AmazonCancellationImporter;
 use App\Services\Import\AmazonPackingListImporter;
 use App\Services\Import\AmazonPoImporter;
+use App\Services\Import\MasterSheetImporter;
 
 /**
  * Maps an upload type to the parser that handles it.
  *
- * Empty until M3, which registers the Amazon PO, packing-list and cancellation
- * importers here. Adding a channel later is a one-line change to this map.
+ * Adding a channel or a file type is a one-line change to this map.
  */
 class ImporterRegistry
 {
@@ -24,7 +24,10 @@ class ImporterRegistry
         UploadType::AmazonFinalPacking->value => AmazonPackingListImporter::class,
         UploadType::AmazonCancellations->value => AmazonCancellationImporter::class,
 
-        // M8 — Noon, M9 — DFS and sell-out, M6 — master sheet.
+        // M6 — the master catalog and its unit economics (§S)
+        UploadType::MasterSheet->value => MasterSheetImporter::class,
+
+        // M8 — Noon, M9 — DFS and sell-out.
     ];
 
     public function has(UploadType $type): bool

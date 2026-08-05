@@ -3,6 +3,7 @@
 use App\Http\Controllers\CancellationDecisionController;
 use App\Http\Controllers\CommittedDeliveriesController;
 use App\Http\Controllers\FulfilmentController;
+use App\Http\Controllers\MasterController;
 use App\Http\Controllers\MoneyPinController;
 use App\Http\Controllers\OverviewController;
 use App\Http\Controllers\PendingController;
@@ -92,6 +93,29 @@ Route::middleware('auth')->group(function () {
         Route::post('/{cancellation}/decision', [CancellationDecisionController::class, 'decide'])
             ->middleware('permission:decide-cancellations')
             ->name('decide');
+    });
+
+    /*
+     * The master catalog and its unit economics (§S, M6).
+     *
+     * Viewing the catalog needs `view-master`, which §O gives to most roles - it is the
+     * product lookup, and it holds no money. Everything that touches money or changes a
+     * row additionally needs `manage-master` AND the PIN, which is §S's "Admin-only +
+     * PIN". The money columns are withheld inside the controller rather than by putting
+     * the PIN on the index route, because bouncing Warehouse off a screen §O grants them
+     * would be the wrong protection in the wrong place.
+     */
+    Route::prefix('master')->name('master.')->group(function () {
+        Route::get('/', [MasterController::class, 'index'])
+            ->middleware('permission:view-master')->name('index');
+
+        Route::middleware(['permission:manage-master', 'money.pin'])->group(function () {
+            Route::post('/', [MasterController::class, 'store'])->name('store');
+            Route::patch('/products/{product}', [MasterController::class, 'updateProduct'])->name('products.update');
+            Route::patch('/economics/{economics}', [MasterController::class, 'updateEconomics'])->name('economics.update');
+            Route::delete('/products/{product}', [MasterController::class, 'destroy'])->name('products.destroy');
+            Route::post('/anomalies/{anomaly}/resolve', [MasterController::class, 'resolveAnomaly'])->name('anomalies.resolve');
+        });
     });
 
     /*

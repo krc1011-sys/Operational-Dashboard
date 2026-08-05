@@ -4,7 +4,7 @@
 This file records how the spec has actually been built: what exists, how to run it,
 what was decided during the build, and what is still open.
 
-Last updated: **M5 complete — the core screens are live.**
+Last updated: **M6 complete — the master catalog and the net-margin engine are live.**
 
 ---
 
@@ -79,7 +79,7 @@ Run the tests with `php artisan test`.
 | **M3** | Amazon ingest — **checkpoint, verified on real files** | ✅ Done |
 | **M4** | Reconciliation engine — turnaround, deliver-anyway workflow, PO completion | ✅ Done |
 | **M5** | Core screens with self-serve filters, group-by and export | ✅ Done |
-| M6 | Master grid + net-margin engine | ⬜ |
+| **M6** | Master grid (Admin + PIN) + net-margin engine — **verified on the real master file** | ✅ Done |
 | M7 | Money views — **checkpoint** | ⬜ |
 | M8 | Noon channel | ⬜ |
 | M9 | DFS + sell-out feeds | ⬜ |
@@ -695,6 +695,36 @@ specified in the blueprint and should be confirmed.
     `FulfilmentQuery`, using the same definitions as the engine — so a screen and the
     engine cannot drift.
 
+**Added at M6:**
+
+25. **Economics are per channel; identifiers are per marketplace.** The real master file is
+    one row per product × channel, and the same product genuinely earns differently on
+    each. Splitting the two apart is what lets 641 ASINs shared between Amazon Retail and
+    Amazon DFS carry two sets of numbers without duplicating the identifier.
+26. **The import never fixes what it is not certain about.** Everything loads; anything
+    doubtful is written to `master_anomalies` in plain language. A wrong guess about which
+    of two products a reused code means would corrupt margin for every PO that SKU appears
+    on, invisibly.
+27. **Our figures win over the sheet's, and the sheet's are kept.** §S makes the app the
+    source of truth (this is decision 9, now exercised). Where they differ the app reports
+    its own and flags the gap — which is how the 49 packaging rows whose COGS the sheet
+    totals as zero were found.
+28. **Missing means null, not zero.** A product with no selling price has no margin, and
+    "0%" would read as breaking even. Applies to the 49 things we buy and never sell.
+29. **Only inputs are editable in the grid.** Derived figures have no input and the server
+    refuses to set one. Change an input and the engine recomputes.
+30. **⚠ assumption — platform fees are excluded from a PO's cost stack.** A PO is
+    wholesale, so the marketplace buys from us rather than charging us to sell; those fees
+    belong to the direct-to-customer picture. See §12.6 — one line to change if wrong.
+31. **⚠ assumption — the master screen's PIN gates the money, not the door.** §O grants
+    `view-master` to most roles and §S says the editable master is Admin + PIN. Putting
+    the PIN on the route would bounce roles §O admits. The columns and the writes are
+    gated instead.
+32. **A product is retired, never deleted.** Deleting would orphan PO lines, shipment lines
+    and cancellations that are historical fact.
+33. **Casing is not a disagreement.** 73 products spell their brand differently across
+    channels and every one is only capitalisation. Flagging them would bury the real ones.
+
 ---
 
 ## 11. Open questions
@@ -710,26 +740,228 @@ Carried forward from blueprint §H, plus what the build has raised.
 | — | **The single-PO export has no order date** | **Worked around at M4** — optional PO-date box on the upload form; the bulk export carries it properly |
 | — | Correcting a delivery date after the fact | **Done at M5** — editable from the delivery page, marked as manually set, recomputes turnaround |
 | — | Sell-through benchmark for the sell-in/sell-out flag (§P) | Needed by M9 |
-| — | Weighted-average vs latest supplier cost (§S) | Deferred to Phase 3, as specified |
+| — | Weighted-average vs latest supplier cost (§S) | Deferred to Phase 3 — now a config switch (`operon.cost_basis`), printed under every margin |
+| — | **`BD62972744` — one code covering two products** | **Open, raised at M6.** Needs the two products split apart; until then that SKU's margin rests on whichever cost the merge chose |
+| — | **`BD07965870` — a Noon row holding an ASIN** | **Open, raised at M6.** Loaded as Noon exactly as given. Typo or mis-filed listing? They need opposite fixes |
+| — | **Three products costed differently per channel** | **Open, raised at M6** — 43.87/45, 40/43, 12.50/13 |
+| — | **Do platform fees apply to a wholesale PO?** | **Assumed no** (§12.6). One line to change if wrong |
+| — | **The sheet's COGS is 0 for 49 packaging items** | Ours says otherwise and flags it; the sheet looks wrong |
 
 ---
 
-## 12. What M6 needs next
+## 12. M6 — Master catalog and net margin (done, verified on the real file)
 
-The screens are live; M6 is the master catalog behind them:
+M5's screens could say how much was ordered and shipped. M6 is what lets them say what
+any of it is *worth*: the catalog that links an ASIN and a NIN to one physical product,
+and the engine that works out what we actually make on it.
 
-- **The master grid** (§S): an Excel-like editable screen inside OperON — click-to-edit
-  cells, inline add and delete, saving instantly. Admin-only and behind the PIN. Bulk
-  `.xlsx` load kept for mass updates.
-- **Loading `Master_Products_Sheet.xlsx`**, which immediately switches on the brand and
-  category filters and grouping that M5 built and currently has no data for, and links
-  ASINs to their company product code so cross-channel reporting works at all.
-- **The net-margin engine**: the sheet's P&L formulas become the app's own calc logic,
-  applied to every PO and SKU. Recomputed by us, with the imported figures kept for
-  cross-checking (§S).
+### 12.1 The shape the real file turned out to have
 
-Then M7 turns that into the money views — PO-level and SKU-level margin, Admin-only and
-behind the PIN.
+`OperON_Master_Merged.xlsx` is **one row per product × channel**, not one per product —
+1,979 rows covering 914 products. That single fact drove the schema.
+
+The same product genuinely earns differently depending on who sells it. One BD code sells
+on Amazon VC at a 29.65% platform fee and on Noon at 23.56%, at different invoice prices
+with different marketing behind it. And **727 of the 914 products sell on more than one
+channel**, while **641 ASINs are listed on both Amazon Retail and Amazon DFS**.
+
+So M1's `products` table, which assumed one set of economics per product, was split:
+
+| Table | One row = | Holds |
+|---|---|---|
+| `products` | One physical product | Code, name, brand, category, **sub-category, owner, origin**, barcode, **suppliers**, cartons, product cost |
+| `product_channel_economics` | One product **on one channel** | RSP, fees, marketing, OPEX, packaging, and the P&L |
+| `master_anomalies` | One thing a person should look at | See §12.4 |
+
+**Identifiers stay per marketplace; economics are per channel.** That distinction is the
+load-bearing one. An ASIN is one ASIN whether it sells through VC or DFS, so those 641
+shared ASINs get **one** identifier row and **two** sets of economics. Storing identifiers
+per channel would have duplicated them; storing economics per marketplace would have lost
+a channel.
+
+Loaded from the real file: **914 products · 1,978 channel rows · 1,354 identifiers**
+(821 Amazon + 533 Noon) · 29 brands · 20 categories · 56 sub-categories.
+
+### 12.2 The moment M5's filters switched on
+
+Loading the catalog linked **189 of the 213 existing PO lines** to a product. Brand and
+category filters and group-by, which M5 built and which had been honestly reporting "not
+in the catalog yet", now work on real data. Nothing in M5 changed — the `product_id`
+column it was already reading simply stopped being null (§K).
+
+### 12.3 The net-margin engine
+
+The sheet's P&L became the app's own calc logic (§S). Each formula was reverse-engineered
+from the real file and checked against **all 1,979 rows** before being written down:
+
+```
+RSP ex VAT      = RSP inc VAT / 1.05          VAT lives in config; KSA's 15% is a config change
+Net receivable  = RSP ex VAT × (1 − fees %)   what the channel actually pays us
+COGS            = product cost + marketing + OPEX + packaging + other misc
+Profit          = net receivable − COGS
+Profit %        = profit / COGS               markup on what we spent
+Margin %        = profit / net receivable     share of what we were paid that we keep
+```
+
+**Profit % and margin % are different questions**, and the sheet asks both. Margin is
+always the smaller number. They are named apart and tested apart because reporting one as
+the other is the easiest mistake available here.
+
+**Why the fee breakdown is not summed.** The file has five fee columns *and* a headline
+"Platform Total Fees %". The five are zero on 1,930 of 1,979 rows while the percentage is
+populated throughout, and it is the percentage that reproduces the sheet's own net
+receivable exactly. So the percentage drives the calculation, the breakdown is stored for
+when it gets filled in, and a row carrying **both** raises an anomaly rather than having
+one picked for it quietly.
+
+**Agreement with the sheet, on the real file:**
+
+| Figure | Ours matches theirs |
+|---|---|
+| Net receivable | 1,978 of 1,978 |
+| Profit | 1,977 of 1,977 |
+| Margin % | 1,977 of 1,977 |
+| COGS | 1,928 of 1,977 — **49 differ, all flagged** |
+
+Those 49 are the packaging materials (`BD2000xx`, "Plain carton"). The sheet totals their
+COGS as zero while each plainly has a product cost. **Ours is the right figure** and every
+one is on the review list. `verify-samples` asserts the property that matters: *every*
+disagreement is flagged, none is silent.
+
+**Things we buy and never sell report no margin, not 0%.** Those same 49 rows have a cost
+and no selling price. "0% margin" would read as breaking even; the truth is the question
+does not apply, so the figure is null and the screen says why.
+
+### 12.4 What the import refuses to guess about
+
+**The rule: load everything, fix nothing, flag what looks wrong.** Guessing which of two
+products a reused code means would push a wrong cost into every PO that SKU appears on,
+and nobody would ever see it happen.
+
+The real file produced **7 items needing a decision and 189 notes**. The three called out
+in advance all surfaced:
+
+- **`BD62972744` — one code, two products.** Flagged on both its channels. The merge
+  chose one of two supplier costs (12.84 / 34.32 and 13.95 / 37.29); every margin for that
+  code rests on the choice, so the note says to treat its profit as unreliable until
+  somebody splits the products apart.
+- **`BD07965870` — a Noon row holding an ASIN** (`B0CV9TDGGW`). Caught **twice**: once by
+  carrying the file's own flag through, and once by our own independent shape check. It is
+  stored as a **Noon** identifier exactly as the file has it and **not moved to Amazon** —
+  a typo and a mis-filed listing need opposite fixes, and only a person knows which it is.
+- **Three products costed differently on different channels** — 43.87/45, 40/43, 12.50/13.
+  The catalog holds the first figure read and the note says which, so the size of the
+  error on the other channel is knowable.
+
+Also detected without being asked: a duplicate row (`BD07902725` twice on Amazon Retail —
+first loaded, second ignored), 98 identifiers that are neither ASIN nor NIN shaped, and
+the 49 COGS disagreements.
+
+**Casing is not a disagreement.** 73 products spell their brand differently across
+channels — every one is "BRANDSFINITY" vs "Brandsfinity". Reporting those would have
+buried the three that matter, so text comparison ignores case.
+
+### 12.5 The master grid (§S Path A)
+
+An Excel-like grid inside OperON. Click a cell, type, leave it — it saves on its own and
+the derived figures beside it repaint immediately.
+
+Two audiences, one screen, enforced on the server:
+
+- **`view-master`** — the catalog: codes, names, brands, sub-categories, owners, origins,
+  identifiers. This is the product lookup, and it holds no money.
+- **`manage-master` + PIN** — the unit economics, and the ability to edit. §S's
+  "Admin-only + PIN/password".
+
+**The PIN is not on the index route**, deliberately. Putting it there would bounce
+Warehouse off a screen §O grants them. It gates the money columns and every write instead
+— the same protection, applied where the sensitive data actually is. A user without it is
+told so in a sentence rather than shown empty columns.
+
+**Only inputs are editable.** Net receivable, COGS, profit and the percentages have no
+input at all, and the server rejects an attempt to set one. Letting somebody type a profit
+its inputs do not produce is how a spreadsheet starts lying. Change an input and the
+engine recomputes on save; a hand-edited row is marked, so a later re-import can tell what
+a person changed from what the file said.
+
+**Removing a product retires it.** A hard delete would orphan PO lines, shipment lines and
+cancellations that are historical fact.
+
+### 12.6 PO-level P&L
+
+§S's "billed 10,000 → net 1,000 = 10%", computed by the engine and ready for M7 to render.
+
+Revenue is **what we actually billed** — units shipped × the PO line's own unit cost —
+not the catalog's list price, because the PO is the thing that happened. Cost is the
+catalog's per-unit stack.
+
+**Coverage travels with the answer and reading it is not optional.** A PO whose SKUs are
+half missing from the catalog yields a profit covering half the order, and that number is
+worse than useless if read as the whole. So a line that cannot be costed contributes
+**neither** its cost **nor** its revenue, and the result reports how many lines and units
+were left out. On the real 8-delivery PO: billed 223,511.20, of which 222,996.40 could be
+costed, cost 142,399.50, **profit 80,596.90 at 36.14%**, 85 of 86 lines covered.
+
+> **⚠ assumption — platform fees are excluded from a PO's cost stack.** A PO is wholesale:
+> Amazon Retail and Noon Retail *buy* from us at the PO's unit cost and resell themselves,
+> so there is no referral or fulfilment fee on that transaction — those belong to the
+> direct-to-customer picture (DFS, §R). Applying the catalog's 29.65% to a wholesale PO
+> would understate every PO's margin by roughly a third. If that reading is wrong, the fix
+> is one line: `NetMarginEngine::poCostPerUnit()` is the only place a PO's cost stack is
+> assembled.
+
+### 12.7 The cost rule is provisional, and says so
+
+§S's interim rule — a product has several suppliers, take the **latest** price — is now a
+config switch (`operon.cost_basis`) rather than a comment, and the grid prints it under
+every screenful of margin. It flips to a weighted average when Supplier-PO uploads arrive
+in Phase 3 (§N); selecting that today would have nothing to average.
+
+### 12.8 Two parser bugs the real file exposed
+
+Both would have silently lost data:
+
+1. **`Profit %` and `Profit` normalised to the same key.** Stripping punctuation collapsed
+   them onto `profit`, first-one-wins, so the percentage column **could not be addressed by
+   name at all**. `%` now normalises to the word `pct`. Aliases without the sign still
+   match, because "profit" is contained in "profit pct".
+2. **The file's own typos defeated exact matching** — "Net Recievable in Hand", "Referal
+   Fees", "Warehosue / Storage Fees". The registry now matches the spellings as they
+   actually appear *and* the correct ones, so fixing the sheet will not break the upload.
+
+A third fix was needed for the grid: the app rendered JSON only for `api/*`, so a rejected
+cell save came back as a redirect to an HTML page and the grid could not say why. It now
+also honours `Accept: application/json`, which affects nothing else.
+
+### 12.9 Tests
+
+`NetMarginTest` (15) works the arithmetic from a real row of the file, with the sheet's own
+answers as the expected values — including the two percentages being different questions,
+loss-making products, division-by-zero guards, things we buy but never sell, and the PO
+coverage rule.
+`MasterCatalogTest` (19) drives the real upload pipeline over a fixture that reproduces the
+file's awkward parts, and asserts each anomaly is raised **and the row still loaded**, that
+the Noon-row-holding-an-ASIN is not moved, that editing needs both the permission and the
+PIN, that a derived figure cannot be typed in, and that money stays out of the export for
+roles that may not see it.
+Full suite: **193 passing**.
+
+---
+
+## 12b. What M7 needs next
+
+The engine is done; M7 is the money views it feeds (§S) — **a checkpoint milestone**:
+
+- **PO-level net P&L**, per PO and rolled up. `NetMarginEngine::forPurchaseOrder()` already
+  returns it. The screen's job is to **show coverage next to every total** — a profit
+  covering 85 of 86 lines must never be read as covering the order.
+- **SKU-level net margin**, with the Amazon / Noon / **Both** channel selector. §S is
+  explicit that "Both" is a **revenue-weighted** average for margin %, never a simple one.
+- Both Admin-only and behind the PIN, both marked with the provisional cost basis.
+
+Two things worth settling before or during M7: whether platform fees belong in a wholesale
+PO's cost stack (§12.6), and the seven catalog items still waiting for a decision — a
+margin screen built on `BD62972744` will report a number nobody should trust.
 
 ### Useful extra files, when convenient
 
@@ -742,7 +974,8 @@ constructed data:
 | The bulk export covering `774FV9FB` / `77Z18X8Q` etc. | The 178 waiting packing lines linking up |
 | A PO with `Accepted < Requested` | Confirmation rate — every sample row is 100% |
 | The order date for PO `6QT4G44D` | The first real turnaround figure (§8.6) |
-| The `Master_Products_Sheet.xlsx` | Needed for M6 anyway |
+| ~~The master sheet~~ | **Supplied and loaded at M6** |
+| A Noon PO + picking list | M8, and the NIN side of the catalog M6 just loaded |
 
 ---
 
@@ -768,6 +1001,22 @@ repeated here because they are the source of most potential bugs:
   and can complete a PO. An interim never does.
 - Packing-list cells are formulas; the reader takes the **cached calculated value**.
   Users are never asked to flatten or paste-values.
+
+**From the master sheet (M6):**
+
+- The master is **one row per product × channel**, not per product. A total across it
+  double-counts products that sell on more than one channel — 727 of 914 do.
+- **Profit % ≠ margin %.** Profit % is profit ÷ COGS; margin % is profit ÷ net receivable.
+  Margin is always smaller.
+- Net receivable comes from **`Platform Total Fees %`**, not from summing the five fee
+  columns — those are zero on almost every row.
+- `Currency` holds the literal string **`0`** on 49 rows (the packaging materials). It is
+  not a currency and is read as absent.
+- A row with **no selling price has no margin** — null, not zero. It is something we buy.
+- The **sheet's own COGS is wrong for those 49 rows** (it says 0; they have a product
+  cost). Ours differs on purpose and flags it.
+- `Sub Category` and `Owner` are populated on 1,874 of 1,979 rows; **`Origin` on only 495**.
+  A report grouped by origin is mostly blanks, and that is the data, not a bug.
 
 ---
 
