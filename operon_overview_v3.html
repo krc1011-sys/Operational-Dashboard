@@ -1,0 +1,245 @@
+<style>
+  :root{
+    --bg:#f4f7f6; --surface:#ffffff; --surface-2:#eef4f2; --surface-3:#e4eeeb;
+    --border:#e1ebe8; --border-2:#ccdcd7;
+    --ink:#0a201d; --text:#0e1c1a; --muted:#526662; --faint:#849793;
+    --teal:#0d9488; --teal-2:#0f766e; --teal-soft:#d3ede9; --teal-tint:#eef9f7;
+    --amber:#f59e0b; --amber-2:#b06f06; --amber-soft:#fbe8c4; --amber-tint:#fdf4e4;
+    --good:#137a3a; --good-soft:#d9f2e2; --warn:#b45309; --warn-soft:#fbe8c4; --bad:#bb352b; --bad-soft:#fbe1dd;
+    --shadow:0 1px 2px rgba(10,40,36,.05),0 10px 30px -8px rgba(10,40,36,.10);
+    --shadow-sm:0 1px 2px rgba(10,40,36,.06);
+    --r:15px; --r-sm:10px; --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#081210; --surface:#0e1c1a; --surface-2:#132623; --surface-3:#193430; --border:#213f39; --border-2:#2b4e47;
+    --ink:#e9f6f2; --text:#e7f3f0; --muted:#9db3af; --faint:#6c8480;
+    --teal:#2dd4bf; --teal-2:#14b8a6; --teal-soft:#123c37; --teal-tint:#0e2926;
+    --amber:#fbbf24; --amber-2:#fbbf24; --amber-soft:#382b10; --amber-tint:#241d0c;
+    --good:#4ade80; --good-soft:#123322; --warn:#fbbf24; --warn-soft:#332810; --bad:#f87171; --bad-soft:#391917;
+    --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 30px -8px rgba(0,0,0,.5); --shadow-sm:0 1px 2px rgba(0,0,0,.3);
+  }}
+  :root[data-theme="dark"]{
+    --bg:#081210; --surface:#0e1c1a; --surface-2:#132623; --surface-3:#193430; --border:#213f39; --border-2:#2b4e47;
+    --ink:#e9f6f2; --text:#e7f3f0; --muted:#9db3af; --faint:#6c8480;
+    --teal:#2dd4bf; --teal-2:#14b8a6; --teal-soft:#123c37; --teal-tint:#0e2926;
+    --amber:#fbbf24; --amber-2:#fbbf24; --amber-soft:#382b10; --amber-tint:#241d0c;
+    --good:#4ade80; --good-soft:#123322; --warn:#fbbf24; --warn-soft:#332810; --bad:#f87171; --bad-soft:#391917;
+    --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 30px -8px rgba(0,0,0,.5); --shadow-sm:0 1px 2px rgba(0,0,0,.3);
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f7f6; --surface:#ffffff; --surface-2:#eef4f2; --surface-3:#e4eeeb; --border:#e1ebe8; --border-2:#ccdcd7;
+    --ink:#0a201d; --text:#0e1c1a; --muted:#526662; --faint:#849793;
+    --teal:#0d9488; --teal-2:#0f766e; --teal-soft:#d3ede9; --teal-tint:#eef9f7;
+    --amber:#f59e0b; --amber-2:#b06f06; --amber-soft:#fbe8c4; --amber-tint:#fdf4e4;
+    --good:#137a3a; --good-soft:#d9f2e2; --warn:#b45309; --warn-soft:#fbe8c4; --bad:#bb352b; --bad-soft:#fbe1dd;
+    --shadow:0 1px 2px rgba(10,40,36,.05),0 10px 30px -8px rgba(10,40,36,.10); --shadow-sm:0 1px 2px rgba(10,40,36,.06);
+  }
+  *{box-sizing:border-box}
+  .op{font-family:var(--font);color:var(--text);background:var(--bg);display:grid;grid-template-columns:224px 1fr;min-height:900px;border-radius:16px;overflow:hidden;border:1px solid var(--border);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;letter-spacing:-.005em}
+  .op *{font-family:inherit}
+  .side{background:var(--surface);border-right:1px solid var(--border);padding:20px 13px;display:flex;flex-direction:column;gap:3px}
+  .brand{display:flex;align-items:center;gap:11px;padding:4px 8px 18px}
+  .brand .wm{font-size:22px;font-weight:750;letter-spacing:-.6px;color:var(--ink)} .brand .wm b{color:var(--teal)}
+  .navlbl{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);padding:14px 10px 5px;font-weight:700}
+  .nav{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--r-sm);color:var(--muted);font-size:13.5px;font-weight:550;cursor:pointer;border:1px solid transparent}
+  .nav:hover{background:var(--surface-2)} .nav.on{background:var(--teal-tint);color:var(--teal-2);border-color:var(--teal-soft);font-weight:650}
+  .nav .ic{width:17px;height:17px;flex:none}
+  .foot{margin-top:auto;display:flex;align-items:center;gap:10px;padding:11px 8px 2px;border-top:1px solid var(--border)}
+  .avatar{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--teal),var(--teal-2));color:#fff;display:grid;place-items:center;font-size:12px;font-weight:750}
+  .foot .n{font-size:12.5px;font-weight:650} .foot .r{font-size:11px;color:var(--faint)}
+  .main{display:flex;flex-direction:column;min-width:0}
+  .top{display:flex;align-items:center;gap:12px;padding:15px 24px;border-bottom:1px solid var(--border);background:var(--surface)}
+  .top h1{font-size:18px;font-weight:700;margin:0;letter-spacing:-.3px;color:var(--ink)}
+  .top .sb{font-size:12px;color:var(--faint);margin-top:2px}
+  .spacer{flex:1}
+  .seg{display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:3px;gap:2px}
+  .seg button{border:0;background:transparent;color:var(--muted);font-size:12px;font-weight:550;padding:5px 10px;border-radius:7px;cursor:pointer}
+  .seg button.on{background:var(--surface);color:var(--text);box-shadow:var(--shadow-sm);font-weight:650}
+  .pill{display:flex;align-items:center;gap:7px;border:1px solid var(--border-2);background:var(--surface);color:var(--muted);font-size:12px;font-weight:550;padding:6px 11px;border-radius:var(--r-sm);cursor:pointer}
+  .content{padding:20px 24px 26px;display:flex;flex-direction:column;gap:16px;overflow-x:hidden}
+
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 15px 13px;box-shadow:var(--shadow-sm);position:relative;overflow:hidden}
+  .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--teal)}
+  .kpi.good::before{background:var(--good)} .kpi.warn::before{background:var(--amber)} .kpi.bad::before{background:var(--bad)} .kpi.n::before{background:var(--border-2)}
+  .kpi .k{font-size:11px;color:var(--muted);font-weight:650;display:flex;align-items:center;gap:5px}
+  .kpi .v{font-size:24px;font-weight:750;letter-spacing:-.8px;margin-top:8px;line-height:1;color:var(--ink)}
+  .kpi .v small{font-size:13px;font-weight:650;color:var(--muted)}
+  .kpi .d{font-size:11px;color:var(--muted);margin-top:8px;display:flex;align-items:center;gap:5px}
+  .chip{font-size:10px;font-weight:750;padding:2px 6px;border-radius:20px}
+  .chip.up{color:var(--good);background:var(--good-soft)} .chip.dn{color:var(--bad);background:var(--bad-soft)} .chip.w{color:var(--warn);background:var(--warn-soft)}
+
+  .row{display:grid;gap:16px} .row.a{grid-template-columns:1.5fr 1fr}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:17px 18px 16px;min-width:0}
+  .ph{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
+  .ph h2{font-size:14px;font-weight:700;margin:0;letter-spacing:-.2px;color:var(--ink)}
+  .ph .sub{font-size:11.5px;color:var(--faint);margin-top:3px;font-weight:500}
+  .ph .link{font-size:11.5px;color:var(--teal-2);font-weight:650;cursor:pointer;white-space:nowrap}
+
+  /* Sell-through */
+  .stbanner{display:flex;align-items:center;gap:14px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:12px}
+  .stbig{font-size:24px;font-weight:750;color:var(--ink);letter-spacing:-.6px} .stbig small{font-size:12px;color:var(--muted);font-weight:600}
+  .stbar{flex:1;display:flex;flex-direction:column;gap:6px}
+  .stbar .t{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);font-weight:600}
+  .stbar .track{height:9px;background:var(--surface-3);border-radius:5px;overflow:hidden;position:relative}
+  .stbar .track i{position:absolute;inset:0 auto 0 0;background:var(--amber);border-radius:5px}
+  .wl{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .wl h3{font-size:11.5px;font-weight:750;margin:0 0 8px;display:flex;align-items:center;gap:6px}
+  .wl h3.risk{color:var(--bad)} .wl h3.opp{color:var(--amber-2)}
+  .wl .i{display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border)}
+  .wl .i .nm{font-size:12px;font-weight:650;color:var(--text);line-height:1.35}
+  .wl .i .mt{font-size:11px;color:var(--muted);margin-top:2px}
+  .wl .i .tag{font-size:11px;font-weight:750;white-space:nowrap;margin-left:auto;align-self:center}
+  .wl .i .tag.r{color:var(--bad)} .wl .i .tag.o{color:var(--amber-2)}
+
+  /* Act today */
+  .att{display:flex;flex-direction:column;gap:8px}
+  .att .a{display:flex;gap:10px;align-items:flex-start;padding:10px 11px;border-radius:var(--r-sm);border:1px solid var(--border);background:var(--surface-2)}
+  .att .a.crit{background:var(--bad-soft);border-color:transparent} .att .a.w{background:var(--amber-tint);border-color:transparent}
+  .att .sev{width:7px;height:7px;border-radius:50%;margin-top:5px;flex:none}
+  .sev.c{background:var(--bad)} .sev.a{background:var(--amber)} .sev.g{background:var(--teal)}
+  .att .tx{font-size:12px;line-height:1.5} .att .tx b{font-weight:700;color:var(--text)} .att .tx .s{color:var(--muted);display:block;font-size:11px;margin-top:1px}
+  .att .go{margin-left:auto;font-size:11px;color:var(--teal-2);font-weight:650;white-space:nowrap;align-self:center}
+
+  /* FC bars + table */
+  .bars{display:flex;align-items:flex-end;gap:12px;height:150px;padding-top:12px}
+  .bar{flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;height:100%;justify-content:flex-end}
+  .bar .fill{width:100%;max-width:40px;background:var(--teal);border-radius:5px 5px 2px 2px}
+  .bar.rush .fill{background:var(--amber)}
+  .bar:hover .fill{opacity:.82}
+  .bar .val{font-size:10.5px;font-weight:700;color:var(--text)}
+  .bar .lbl{font-size:11px;font-weight:650;color:var(--muted);display:flex;align-items:center;gap:4px}
+  .rt{font-size:8.5px;font-weight:800;color:var(--amber-2);background:var(--amber-soft);padding:1px 4px;border-radius:4px}
+  .fctbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:12px}
+  .fctbl th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:700;padding:6px 8px;border-bottom:1px solid var(--border)}
+  .fctbl td{padding:8px;border-bottom:1px solid var(--border)} .fctbl tr:last-child td{border-bottom:0}
+  .fctbl .num{text-align:right;font-weight:650} .fctbl .fc{font-weight:700;display:flex;align-items:center;gap:6px}
+  .fctbl tr:hover td{background:var(--surface-2)}
+  .mini{height:6px;width:60px;background:var(--surface-3);border-radius:5px;overflow:hidden;display:inline-block;vertical-align:middle}
+  .mini i{display:block;height:100%;background:var(--teal);border-radius:5px} .mini.w i{background:var(--amber)}
+
+  /* Channel */
+  .ch{display:flex;flex-direction:column;gap:13px}
+  .ch .c{display:flex;align-items:center;gap:12px}
+  .ch .badge{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;font-size:10.5px;font-weight:800;color:#fff;flex:none}
+  .ch .nm{font-size:12.5px;font-weight:700} .ch .mt{font-size:11px;color:var(--muted);margin-top:1px}
+  .ch .amt{font-size:12.5px;font-weight:750;color:var(--ink);white-space:nowrap;margin-left:auto}
+  @media (max-width:1120px){.op{grid-template-columns:1fr}.side{display:none}.kpis{grid-template-columns:repeat(3,1fr)}.row.a{grid-template-columns:1fr}.wl{grid-template-columns:1fr}}
+</style>
+
+<div class="op" role="img" aria-label="OperON Overview v3: KPI vitals, sell-through with named overstocking and under-supplying watchlists, act-today alerts, fulfilment-centre performance and channel mix">
+  <aside class="side">
+    <div class="brand">
+      <svg width="30" height="30" viewBox="0 0 64 64" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="44" stroke="#0d9488" stroke-width="3.5"/><line x1="18" y1="20" x2="40" y2="20" stroke="#0d9488" stroke-width="3.5"/><line x1="18" y1="44" x2="40" y2="44" stroke="#0d9488" stroke-width="3.5"/><line x1="40" y1="20" x2="46" y2="32" stroke="#0d9488" stroke-width="3.5"/><line x1="40" y1="44" x2="46" y2="32" stroke="#0d9488" stroke-width="3.5"/><circle cx="18" cy="20" r="6" fill="#0d9488"/><circle cx="18" cy="44" r="6" fill="#0d9488"/><circle cx="40" cy="20" r="6" fill="#f59e0b"/><circle cx="40" cy="44" r="6" fill="#f59e0b"/><circle cx="46" cy="32" r="6" fill="#0d9488"/></svg>
+      <span class="wm">Oper<b>O</b>N</span>
+    </div>
+    <div class="nav on"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Overview</div>
+    <div class="nav"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>PO Lookup</div>
+    <div class="nav"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Fulfilment</div>
+    <div class="nav"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><path d="M16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>Deliveries</div>
+    <div class="nav"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>Products</div>
+    <div class="navlbl">Money · Admin</div>
+    <div class="nav"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Margin<svg viewBox="0 0 24 24" width="13" height="13" style="margin-left:auto;opacity:.55" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+    <div class="nav"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v6H3z"/><path d="M3 9v12h18V9"/><path d="M9 13h6"/></svg>Master Sheet</div>
+    <div class="nav"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>Upload</div>
+    <div class="foot"><div class="avatar">KC</div><div><div class="n">Karan C.</div><div class="r">Admin · UAE</div></div></div>
+  </aside>
+
+  <div class="main">
+    <header class="top">
+      <div><h1>Overview</h1><div class="sb">Fulfilment health · updated 2 min ago</div></div>
+      <div class="spacer"></div>
+      <div class="seg"><button class="on">All channels</button><button>Amazon</button><button>Noon</button></div>
+      <div class="pill">All FCs <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></div>
+      <div class="pill"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Last 30 days</div>
+    </header>
+
+    <div class="content">
+      <section class="kpis">
+        <div class="kpi good"><div class="k">Fill rate</div><div class="v">95.8<small>%</small></div><div class="d"><span class="chip up">▲ 1.2</span> completed POs · target 95%</div></div>
+        <div class="kpi good"><div class="k">Confirmation rate</div><div class="v">84<small>%</small></div><div class="d">accepted ÷ requested · band 80–85</div></div>
+        <div class="kpi warn"><div class="k">Avg turnaround</div><div class="v">13.2<small> days</small></div><div class="d"><span class="chip w">▲ 3.2</span> over 10-day goal</div></div>
+        <div class="kpi n"><div class="k">Revenue invoiced</div><div class="v"><small>AED </small>1.44<small>M</small></div><div class="d"><span class="chip up">▲ 8.4%</span> 41 POs · 30d</div></div>
+        <div class="kpi warn"><div class="k">Sell-through</div><div class="v">62<small>%</small></div><div class="d">shipped in vs sold out · goal 60%</div></div>
+        <div class="kpi bad"><div class="k">Revenue at risk</div><div class="v"><small>AED </small>34.6<small>k</small></div><div class="d">3,449 units short · 3 SKUs</div></div>
+      </section>
+
+      <section class="row a">
+        <div class="panel">
+          <div class="ph"><div><h2>Sell-through — are goods actually moving?</h2><div class="sub">What we shipped to the channels vs what customers bought · last 60 days</div></div><span class="link">Open analysis →</span></div>
+          <div class="stbanner">
+            <div><div class="stbig">62<small>%</small></div></div>
+            <div class="stbar">
+              <div class="t"><span>Shipped in — AED 1.44M</span><span>Sold out — AED 0.89M</span></div>
+              <div class="track"><i style="width:62%"></i></div>
+              <div class="t" style="color:var(--faint)"><span>Healthy when sell-out keeps pace with sell-in</span><span>AED 0.55M sitting at the channel</span></div>
+            </div>
+          </div>
+          <div class="wl">
+            <div>
+              <h3 class="risk"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>Overstocking — pause reorders</h3>
+              <div class="i"><div><div class="nm">Cube Tissue, 48-pack</div><div class="mt">shipped 2,400 · sold 780</div></div><span class="tag r">AED 96k</span></div>
+              <div class="i"><div><div class="nm">Fabric Softener Blue 3L ×2</div><div class="mt">shipped 900 · sold 310</div></div><span class="tag r">AED 41k</span></div>
+              <div class="i"><div><div class="nm">Vinyl Gloves, XL 100pc</div><div class="mt">shipped 1,000 · sold 420</div></div><span class="tag r">AED 32k</span></div>
+            </div>
+            <div>
+              <h3 class="opp"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/></svg>Under-supplying — reorder / push</h3>
+              <div class="i"><div><div class="nm">Nice Touch Facial Tissue</div><div class="mt">sold 1,455 · shipped 900 · 4d cover</div></div><span class="tag o">+555</span></div>
+              <div class="i"><div><div class="nm">Brandsfinity Maxi Roll 6pk</div><div class="mt">sold 540 · shipped 380 · 6d cover</div></div><span class="tag o">+160</span></div>
+              <div class="i"><div><div class="nm">Bird Food, Budgie 10kg</div><div class="mt">sold 261 · shipped 190</div></div><span class="tag o">+71</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="ph"><div><h2>Act today</h2><div class="sub">Ranked by impact</div></div></div>
+          <div class="att">
+            <div class="a crit"><span class="sev c"></span><div class="tx"><b>AED 169k tied up in overstock</b><span class="s">3 SKUs shipped 3× faster than they sell — pause replenishment</span></div><span class="go">View →</span></div>
+            <div class="a crit"><span class="sev c"></span><div class="tx"><b>2 rush-FC POs close in &lt; 48h</b><span class="s">AUH7 · 2DELP6KY and DUF8 · 7VW118OL — not fully booked</span></div><span class="go">Book →</span></div>
+            <div class="a w"><span class="sev a"></span><div class="tx"><b>Nice Touch tissue — 4 days' cover left</b><span class="s">Selling faster than we ship; reorder before stock-out</span></div><span class="go">Reorder →</span></div>
+            <div class="a w"><span class="sev a"></span><div class="tx"><b>Turnaround 13.2d — over 10-day goal</b><span class="s">DXB6 driving it; 4 POs open beyond window</span></div><span class="go">View →</span></div>
+            <div class="a"><span class="sev g"></span><div class="tx"><b>178 packing lines awaiting POs</b><span class="s">Auto-link when those PO exports upload</span></div><span class="go">Details →</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="row a">
+        <div class="panel">
+          <div class="ph"><div><h2>Fulfilment centres</h2><div class="sub">PO value & fill rate by FC · rush FCs prioritised (Amazon Now)</div></div><span class="link">All FCs →</span></div>
+          <div class="bars">
+            <div class="bar rush"><div class="fill" style="height:86%"></div><div class="val">356k</div><div class="lbl">AUH7 <span class="rt">RUSH</span></div></div>
+            <div class="bar"><div class="fill" style="height:100%"></div><div class="val">412k</div><div class="lbl">DXB3</div></div>
+            <div class="bar"><div class="fill" style="height:48%"></div><div class="val">198k</div><div class="lbl">DXB6</div></div>
+            <div class="bar rush"><div class="fill" style="height:43%"></div><div class="val">176k</div><div class="lbl">DUF8 <span class="rt">RUSH</span></div></div>
+            <div class="bar"><div class="fill" style="height:35%"></div><div class="val">142k</div><div class="lbl">AUH1</div></div>
+            <div class="bar"><div class="fill" style="height:24%"></div><div class="val">98k</div><div class="lbl">DXB5</div></div>
+            <div class="bar"><div class="fill" style="height:15%"></div><div class="val">61k</div><div class="lbl">UAE1</div></div>
+          </div>
+          <table class="fctbl">
+            <thead><tr><th>Fulfilment centre</th><th class="num">POs</th><th class="num">Units</th><th class="num">Value</th><th>Fill rate</th></tr></thead>
+            <tbody>
+              <tr><td class="fc"><span class="rt">RUSH</span>AUH7</td><td class="num">9</td><td class="num">4,120</td><td class="num">AED 356k</td><td><span class="mini"><i style="width:98%"></i></span> 98%</td></tr>
+              <tr><td class="fc">DXB3</td><td class="num">11</td><td class="num">5,240</td><td class="num">AED 412k</td><td><span class="mini"><i style="width:96%"></i></span> 96%</td></tr>
+              <tr><td class="fc"><span class="rt">RUSH</span>DUF8</td><td class="num">6</td><td class="num">2,180</td><td class="num">AED 176k</td><td><span class="mini w"><i style="width:88%"></i></span> 88%</td></tr>
+              <tr><td class="fc">DXB6</td><td class="num">7</td><td class="num">2,640</td><td class="num">AED 198k</td><td><span class="mini"><i style="width:94%"></i></span> 94%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="panel">
+          <div class="ph"><div><h2>Channel mix</h2><div class="sub">Revenue · 30 days</div></div></div>
+          <div class="ch">
+            <div class="c"><div class="badge" style="background:linear-gradient(135deg,#ff9900,#e47911)">AMZ</div><div style="flex:1"><div class="nm">Amazon — Vendor Central</div><div class="mt">41 POs · 95.8% fill · 84% confirm</div></div><div class="amt">AED 1.02M</div></div>
+            <div class="c"><div class="badge" style="background:linear-gradient(135deg,#146eb4,#0f5a95)">DFS</div><div style="flex:1"><div class="nm">Amazon — Direct Fulfilment</div><div class="mt">1,570 orders · 0.6% returns</div></div><div class="amt">AED 224k</div></div>
+            <div class="c"><div class="badge" style="background:linear-gradient(135deg,#feee00,#e6d500);color:#3a3400">NOON</div><div style="flex:1"><div class="nm">Noon — Retail</div><div class="mt">18 POs · 62% sell-through</div></div><div class="amt">AED 196k</div></div>
+          </div>
+          <div class="ph" style="margin:18px 0 0"><div><h2 style="font-size:12.5px">In-flight vs complete</h2><div class="sub">why blended fill looks lower</div></div></div>
+          <div class="ch" style="margin-top:12px">
+            <div class="c"><div style="flex:1"><div class="nm">Completed POs</div><div class="mt">shipped & closed</div></div><div class="amt" style="color:var(--good)">95.8% fill</div></div>
+            <div class="c"><div style="flex:1"><div class="nm">In-flight POs</div><div class="mt">deliveries still to upload</div></div><div class="amt" style="color:var(--muted)">11 open</div></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>

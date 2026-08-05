@@ -1,3 +1,7 @@
+/* The OperON design system (DESIGN_BRIEF §3-§5): colour tokens for light and dark,
+   plus the component classes every screen is built from. */
+@import "./operon.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
