@@ -7,6 +7,7 @@ use App\Http\Controllers\MasterController;
 use App\Http\Controllers\MoneyPinController;
 use App\Http\Controllers\OverviewController;
 use App\Http\Controllers\PoLookupController;
+use App\Http\Controllers\ProductsController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ShipmentsController;
 use App\Http\Controllers\UploadController;
@@ -117,6 +118,13 @@ Route::middleware('auth')->group(function () {
             ->middleware('permission:decide-cancellations')
             ->name('decide');
     });
+
+    /*
+     * Products — the SKU analytics home (DESIGN_BRIEF §8). Brand and category rollups
+     * and the labelled quadrant live here rather than being scattered across screens.
+     */
+    Route::match(['get', 'post'], '/products', [ProductsController::class, 'index'])
+        ->middleware('permission:view-analytics|view-master')->name('products.index');
 
     /*
      * The master catalog and its unit economics (§S, M6).

@@ -48,6 +48,7 @@
                 ['PO Lookup', 'po-lookup.index', 'po-lookup.*', ['view-po-status']],
                 ['Fulfilment', 'fulfilment.index', 'fulfilment.*', ['view-fulfillment', 'view-pending']],
                 ['Deliveries', 'deliveries.index', 'deliveries.*', ['view-shipments', 'view-committed-deliveries']],
+                ['Products', 'products.index', 'products.*', ['view-analytics', 'view-master']],
                 ['Cancellations', 'cancellations.index', 'cancellations.*', ['view-cancelled-items']],
             ];
         @endphp

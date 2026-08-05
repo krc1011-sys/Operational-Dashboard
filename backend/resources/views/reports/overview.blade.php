@@ -68,7 +68,8 @@
                :value="$sellThrough['pct'] ?? '—'"
                :unit="$sellThrough ? '%' : null"
                :tone="$sellThrough ? 'warn' : 'n'"
-               :context="$sellThrough ? 'shipped in vs sold out' : 'needs the sell-out report (M9)'" />
+               :context="$sellThrough ? 'shipped in vs sold out' : 'needs the sell-out report (M9)'"
+               :href="route('products.index')" />
 
         <x-kpi label="Revenue at risk"
                :prefix="$mixed ? null : Currency::code($cur).' '"
@@ -85,7 +86,8 @@
     <section class="row a">
         {{-- Sell-through: the "are goods actually moving" question (§8). --}}
         <x-panel title="Sell-through — are goods actually moving?"
-                 sub="What we shipped to the channels vs what customers bought">
+                 sub="What we shipped to the channels vs what customers bought"
+                 link="Open analysis →" :linkHref="route('products.index')">
 
             @if ($sellThrough)
                 <div class="stbanner">
