@@ -6,7 +6,6 @@ use App\Http\Controllers\FulfilmentController;
 use App\Http\Controllers\MasterController;
 use App\Http\Controllers\MoneyPinController;
 use App\Http\Controllers\OverviewController;
-use App\Http\Controllers\PendingController;
 use App\Http\Controllers\PoLookupController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ShipmentsController;
@@ -64,11 +63,21 @@ Route::middleware('auth')->group(function () {
     Route::get('/po-lookup/{poNumber}', [PoLookupController::class, 'show'])
         ->middleware('permission:view-po-status')->name('po-lookup.show');
 
+    /*
+     * Fulfilment, with the old Pending tab merged in as its "Not booked" status
+     * (DESIGN_BRIEF §8).
+     *
+     * EITHER permission opens it, deliberately. §O gives Sales `view-pending` without
+     * `view-fulfillment`, so requiring only the latter would have silently removed a
+     * screen Sales had. The controller then holds a pending-only user to the not-booked
+     * view, which is exactly what their old tab showed.
+     */
     Route::match(['get', 'post'], '/fulfilment', [FulfilmentController::class, 'index'])
-        ->middleware('permission:view-fulfillment')->name('fulfilment.index');
+        ->middleware('permission:view-fulfillment|view-pending')->name('fulfilment.index');
 
-    Route::match(['get', 'post'], '/pending', [PendingController::class, 'index'])
-        ->middleware('permission:view-pending')->name('pending.index');
+    // The old Pending URL keeps working and lands on the same rows it always did.
+    Route::get('/pending', fn () => redirect()->route('fulfilment.index', ['view' => 'outstanding']))
+        ->middleware('permission:view-fulfillment|view-pending')->name('pending.index');
 
     Route::match(['get', 'post'], '/shipments', [ShipmentsController::class, 'index'])
         ->middleware('permission:view-shipments')->name('shipments.index');

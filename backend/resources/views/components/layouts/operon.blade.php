@@ -46,8 +46,7 @@
             $nav = [
                 ['Overview', 'overview.index', 'overview.*', ['view-overview']],
                 ['PO Lookup', 'po-lookup.index', 'po-lookup.*', ['view-po-status']],
-                ['Fulfilment', 'fulfilment.index', 'fulfilment.*', ['view-fulfillment']],
-                ['Pending', 'pending.index', 'pending.*', ['view-pending']],
+                ['Fulfilment', 'fulfilment.index', 'fulfilment.*', ['view-fulfillment', 'view-pending']],
                 ['Deliveries', 'shipments.index', 'shipments.*', ['view-shipments']],
                 ['Committed', 'committed.index', 'committed.*', ['view-committed-deliveries']],
                 ['Cancellations', 'cancellations.index', 'cancellations.*', ['view-cancelled-items']],

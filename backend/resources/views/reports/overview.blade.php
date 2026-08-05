@@ -76,7 +76,7 @@
                :unit="$mixed ? null : $riskUnit"
                :tone="$totals['shortfall_units'] > 0 ? 'bad' : 'good'"
                :context="number_format($totals['shortfall_units']).' units short · '.number_format($totals['sku_count']).' SKUs'"
-               :href="route('pending.index')" />
+               :href="route('fulfilment.index', ['view' => 'outstanding'])" />
     </section>
 
     <x-filters :filters="$filters" :action="route('overview.index')"

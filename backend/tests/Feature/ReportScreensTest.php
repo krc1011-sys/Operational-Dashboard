@@ -117,19 +117,41 @@ class ReportScreensTest extends TestCase
     {
         $admin = $this->user('Admin');
 
-        foreach (['overview.index', 'po-lookup.index', 'fulfilment.index', 'pending.index',
+        foreach (['overview.index', 'po-lookup.index', 'fulfilment.index',
             'shipments.index', 'committed.index'] as $route) {
             $this->actingAs($admin)->get(route($route))->assertOk();
         }
 
-        // Sales has no fulfilment or shipments rights; Warehouse has no committed lookup.
-        $this->actingAs($this->user('Sales'))->get(route('fulfilment.index'))->assertForbidden();
         $this->actingAs($this->user('Sales'))->get(route('shipments.index'))->assertForbidden();
         $this->actingAs($this->user('Warehouse'))->get(route('committed.index'))->assertForbidden();
-
-        // …but both keep the screens §O does give them.
-        $this->actingAs($this->user('Sales'))->get(route('pending.index'))->assertOk();
         $this->actingAs($this->user('Warehouse'))->get(route('shipments.index'))->assertOk();
+    }
+
+    /**
+     * Merging Pending into Fulfilment must not cost anybody a screen.
+     *
+     * §O gives Sales `view-pending` and NOT `view-fulfillment`, so the merged screen has
+     * to let Sales in - and then show them only what Pending showed them.
+     */
+    public function test_merging_pending_into_fulfilment_costs_sales_nothing(): void
+    {
+        $sales = $this->user('Sales');
+
+        // Sales still reaches the rows their old tab held...
+        $this->actingAs($sales)->get(route('fulfilment.index'))
+            ->assertOk()
+            ->assertSee('Not booked');
+
+        // ...and the old URL still lands on them.
+        $this->actingAs($sales)->get(route('pending.index'))
+            ->assertRedirect(route('fulfilment.index', ['view' => 'outstanding']));
+
+        // But Sales does not gain the full fulfilment view: asking for another status
+        // still lands on the not-booked one.
+        $this->actingAs($sales)
+            ->get(route('fulfilment.index', ['view' => 'shipped']))
+            ->assertOk()
+            ->assertSee('with units not yet booked');
     }
 
     /**
@@ -168,14 +190,26 @@ class ReportScreensTest extends TestCase
 
     // --- Fulfilment, its filters and its grouping -----------------------------
 
-    public function test_fulfilment_lists_lines_worst_shortfall_first(): void
+    /** The list is POs now, worst unshipped value first (DESIGN_BRIEF §8). */
+    public function test_fulfilment_lists_purchase_orders_worst_shortfall_first(): void
     {
         $this->actingAs($this->user('Admin'))
             ->get(route('fulfilment.index'))
             ->assertOk()
-            ->assertSee('B08TESTCCC')
-            // B is 100 units short of its net accepted, A is 60, C is fully shipped.
-            ->assertSeeInOrder(['B08TESTBBB', 'B08TESTAAA', 'B08TESTCCC']);
+            // 774FV9FB carries the bigger shortfall, so it leads.
+            ->assertSeeInOrder(['774FV9FB', '1L5KQKGM']);
+    }
+
+    /** Opening a PO shows its lines and where each one has got to. */
+    public function test_expanding_a_po_shows_its_lines(): void
+    {
+        $this->actingAs($this->user('Admin'))
+            ->get(route('fulfilment.index', ['expand' => '774FV9FB']))
+            ->assertOk()
+            ->assertSee('B08TESTAAA')
+            ->assertSee('B08TESTBBB')
+            // A line belonging to the other PO stays shut.
+            ->assertDontSee('B08TESTCCC');
     }
 
     public function test_the_fc_filter_narrows_to_one_fulfilment_centre(): void
@@ -183,8 +217,8 @@ class ReportScreensTest extends TestCase
         $this->actingAs($this->user('Admin'))
             ->get(route('fulfilment.index', ['fc' => 'DXB6']))
             ->assertOk()
-            ->assertSee('B08TESTCCC')
-            ->assertDontSee('B08TESTAAA');
+            ->assertSee('1L5KQKGM')
+            ->assertDontSee('774FV9FB');
     }
 
     public function test_the_po_date_range_filters_on_the_pos_own_date(): void
@@ -193,47 +227,54 @@ class ReportScreensTest extends TestCase
         $this->actingAs($this->user('Admin'))
             ->get(route('fulfilment.index', ['from' => '2026-08-04']))
             ->assertOk()
-            ->assertSee('B08TESTCCC')
-            ->assertDontSee('B08TESTAAA');
+            ->assertSee('1L5KQKGM')
+            ->assertDontSee('774FV9FB');
     }
 
     public function test_the_search_box_finds_a_line_by_asin_and_by_po(): void
     {
         $admin = $this->user('Admin');
 
+        // Searching an ASIN narrows to the PO that carries it.
         $this->actingAs($admin)->get(route('fulfilment.index', ['search' => 'B08TESTBBB']))
-            ->assertOk()->assertSee('B08TESTBBB')->assertDontSee('B08TESTCCC');
+            ->assertOk()->assertSee('774FV9FB')->assertDontSee('1L5KQKGM');
 
         $this->actingAs($admin)->get(route('fulfilment.index', ['po' => '1L5KQKGM']))
-            ->assertOk()->assertSee('B08TESTCCC')->assertDontSee('B08TESTAAA');
+            ->assertOk()->assertSee('1L5KQKGM')->assertDontSee('774FV9FB');
     }
 
     public function test_the_status_filter_uses_the_line_state(): void
     {
         $this->actingAs($this->user('Admin'))
-            ->get(route('fulfilment.index', ['status' => 'scheduled']))
+            ->get(route('fulfilment.index', ['view' => 'booked', 'expand' => '774FV9FB']))
             ->assertOk()
-            // B is booked but not shipped; A and C have shipped.
+            // B is booked and not shipped; A and C have shipped.
             ->assertSee('B08TESTBBB')
             ->assertDontSee('B08TESTCCC');
     }
 
-    public function test_grouping_by_sku_rolls_the_lines_up(): void
+    /**
+     * Group-by now rolls up in the EXPORT rather than on screen: the screen lists POs,
+     * and on-screen brand/category rollups belong to Products (DESIGN_BRIEF §8).
+     */
+    public function test_grouping_by_sku_rolls_the_lines_up_in_the_export(): void
     {
-        $this->actingAs($this->user('Admin'))
-            ->get(route('fulfilment.index', ['group_by' => 'sku']))
-            ->assertOk()
-            ->assertSee('Grouped by sku')
-            ->assertSee('B08TESTAAA');
+        $csv = $this->actingAs($this->user('Admin'))
+            ->get(route('fulfilment.index', ['group_by' => 'sku', 'export' => 'csv']))
+            ->streamedContent();
+
+        $this->assertStringContainsString('B08TESTAAA', $csv);
+        $this->assertStringContainsString('SKUs', $csv);
     }
 
-    /** Brand comes from the master catalog, which is not loaded until M6. */
+    /** Brand comes from the master catalog, which this fixture does not load. */
     public function test_grouping_by_brand_says_so_rather_than_dropping_rows(): void
     {
-        $this->actingAs($this->user('Admin'))
-            ->get(route('fulfilment.index', ['group_by' => 'brand']))
-            ->assertOk()
-            ->assertSee('Not in the catalog yet');
+        $csv = $this->actingAs($this->user('Admin'))
+            ->get(route('fulfilment.index', ['group_by' => 'brand', 'export' => 'csv']))
+            ->streamedContent();
+
+        $this->assertStringContainsString('Not in the catalog yet', $csv);
     }
 
     // --- The bulk ASIN filter (§M) --------------------------------------------
@@ -256,10 +297,16 @@ class ReportScreensTest extends TestCase
         $this->assertStringContainsString('sku_key=', $url);
         $this->assertStringNotContainsString('B08TESTAAA', $url, 'The list itself must not be in the URL.');
 
+        // A and C live on different POs, so both POs survive the filter; B's PO is the
+        // same as A's, so the proof it narrowed is in the line count, not the PO list.
         $this->actingAs($admin)->get($url)
             ->assertOk()
+            ->assertSee('774FV9FB')
+            ->assertSee('1L5KQKGM');
+
+        $this->actingAs($admin)->get($url.'&expand=774FV9FB')
+            ->assertOk()
             ->assertSee('B08TESTAAA')
-            ->assertSee('B08TESTCCC')
             ->assertDontSee('B08TESTBBB');
     }
 
@@ -273,8 +320,8 @@ class ReportScreensTest extends TestCase
 
         $this->actingAs($admin)->get($response->headers->get('Location'))
             ->assertOk()
-            ->assertSee('B08TESTCCC')
-            ->assertDontSee('B08TESTAAA');
+            ->assertSee('1L5KQKGM')
+            ->assertDontSee('774FV9FB');
     }
 
     public function test_pasted_lists_are_read_however_they_are_pasted(): void
@@ -320,17 +367,24 @@ class ReportScreensTest extends TestCase
         }
     }
 
-    // --- Pending --------------------------------------------------------------
+    // --- The merged "not booked" view (was the Pending tab) --------------------
 
-    public function test_pending_shows_only_units_not_booked_anywhere(): void
+    public function test_the_not_booked_view_shows_only_units_on_no_delivery(): void
     {
+        // 50 units of A were never booked; B and C are fully booked.
         $this->actingAs($this->user('Admin'))
-            ->get(route('pending.index'))
+            ->get(route('fulfilment.index', ['view' => 'outstanding', 'expand' => '774FV9FB']))
             ->assertOk()
-            // 50 units of A were never booked; B and C are fully booked.
             ->assertSee('B08TESTAAA')
             ->assertDontSee('B08TESTBBB')
             ->assertDontSee('B08TESTCCC');
+
+        // And the PO carrying nothing outstanding drops off the list entirely.
+        $this->actingAs($this->user('Admin'))
+            ->get(route('fulfilment.index', ['view' => 'outstanding']))
+            ->assertOk()
+            ->assertSee('774FV9FB')
+            ->assertDontSee('1L5KQKGM');
     }
 
     // --- PO lookup (§L) --------------------------------------------------------

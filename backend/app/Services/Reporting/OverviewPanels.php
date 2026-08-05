@@ -180,7 +180,7 @@ class OverviewPanels
                 'detail' => number_format($totals['shortfall_units']).' units short across '
                     .number_format($totals['sku_count']).' SKUs',
                 'action' => 'View shortfall →',
-                'href' => route('pending.index'),
+                'href' => route('fulfilment.index', ['view' => 'outstanding']),
             ];
         }
 
