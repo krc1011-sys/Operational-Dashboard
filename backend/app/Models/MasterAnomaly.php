@@ -48,8 +48,8 @@ class MasterAnomaly extends Model
     /** Our recomputed P&L disagrees with the figure the sheet shipped with (§10.9). */
     public const KIND_DERIVED_DISAGREEMENT = 'derived_disagreement';
 
-    /** The fee breakdown and the headline fee percentage both carry values. */
-    public const KIND_FEE_BASIS_AMBIGUOUS = 'fee_basis_ambiguous';
+    /** A group of rows whose marketplace cut differs from their channel's standard. */
+    public const KIND_MARGIN_RATE_EXCEPTION = 'margin_rate_exception';
 
     /** An exact duplicate row, loaded once. */
     public const KIND_DUPLICATE_ROW = 'duplicate_row';
@@ -104,7 +104,7 @@ class MasterAnomaly extends Model
             self::KIND_COST_DISAGREEMENT => 'Cost differs between channels',
             self::KIND_ATTRIBUTE_DISAGREEMENT => 'Details differ between channels',
             self::KIND_DERIVED_DISAGREEMENT => "Our figures differ from the sheet's",
-            self::KIND_FEE_BASIS_AMBIGUOUS => 'Fees given two ways',
+            self::KIND_MARGIN_RATE_EXCEPTION => 'Different marketplace cut',
             self::KIND_DUPLICATE_ROW => 'Duplicate row',
         ];
     }

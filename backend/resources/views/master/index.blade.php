@@ -40,7 +40,9 @@
             {{-- The review queue. Sits above the grid because a flagged product's
                  margin cannot be trusted until somebody answers it. --}}
             @if($anomalies->isNotEmpty())
-                <div x-data="{ open: {{ $reviewCount > 0 ? 'true' : 'false' }} }"
+                {{-- Collapsed when you have arrived from a flag: you came here to fix one
+                     product, not to re-read the list you just clicked. --}}
+                <div x-data="{ open: {{ ($reviewCount > 0 && ! $focus) ? 'true' : 'false' }} }"
                      class="border rounded-lg {{ $reviewCount > 0 ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white' }}">
                     <button @click="open = !open" class="w-full text-start p-4 flex items-center justify-between">
                         <div>
@@ -71,7 +73,13 @@
                                             {{ $kindLabels[$anomaly->kind] ?? $anomaly->kind }}
                                         </span>
                                         @if($anomaly->company_product_code)
-                                            <a href="{{ route('master.index', ['q' => $anomaly->company_product_code]) }}"
+                                            {{-- Lands on the product's own row, scrolled to, highlighted and
+                                                 with the first cell focused - so the flag leads straight to
+                                                 the fix rather than to a filtered page that looks unchanged. --}}
+                                            <a href="{{ route('master.index', [
+                                                    'q' => $anomaly->company_product_code,
+                                                    'focus' => $anomaly->company_product_code,
+                                               ]) }}#product-{{ $anomaly->company_product_code }}"
                                                class="font-mono text-teal-800 underline ms-2">{{ $anomaly->company_product_code }}</a>
                                         @endif
                                         <p class="mt-1 text-gray-800">{{ $anomaly->message }}</p>
@@ -171,7 +179,11 @@
                     </thead>
                     <tbody class="divide-y">
                         @forelse($products as $product)
-                            <tr class="align-top {{ $product->is_active ? '' : 'opacity-50' }}">
+                            @php($isFocused = $focus !== null && $focus === $product->company_product_code)
+                            <tr id="product-{{ $product->company_product_code }}"
+                                @if($isFocused) data-focused="1" @endif
+                                class="align-top {{ $product->is_active ? '' : 'opacity-50' }}
+                                       {{ $isFocused ? 'ring-2 ring-teal-500 bg-teal-50/60' : '' }}">
                                 <td class="py-2 px-3 font-mono whitespace-nowrap">
                                     {{ $product->company_product_code }}
                                     @unless($product->is_active)
@@ -225,7 +237,8 @@
                                                 <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs">
                                                     @foreach([
                                                         'rsp_ex_vat' => 'RSP ex VAT',
-                                                        'platform_fees_pct' => 'Fees %',
+                                                        'invoice_pct_of_rsp' => 'Front (inv ÷ RSP)',
+                                                        'net_pct_of_invoice' => 'Back (net ÷ inv)',
                                                         'marketing' => 'Marketing',
                                                         'opex' => 'OPEX',
                                                         'packaging' => 'Packaging',
@@ -240,7 +253,13 @@
                                                 </div>
 
                                                 <div class="mt-1 text-xs" id="derived-{{ $economics->id }}">
-                                                    <span class="text-gray-500">Net receivable</span>
+                                                    <span class="text-gray-500">Invoice</span>
+                                                    <strong data-derived="invoice_value">
+                                                        @if($economics->invoice_value !== null)
+                                                            <x-money :amount="$economics->invoice_value" :currency="$economics->currency" />
+                                                        @else — @endif
+                                                    </strong>
+                                                    <span class="text-gray-500 ms-2">Net receivable</span>
                                                     <strong data-derived="net_receivable">
                                                         @if($economics->net_receivable !== null)
                                                             <x-money :amount="$economics->net_receivable" :currency="$economics->currency" />
@@ -268,6 +287,12 @@
                                                 @if($economics->net_receivable === null)
                                                     <div class="text-xs text-gray-500 mt-1">
                                                         No selling price, so no margin — this is something we buy, not something we sell.
+                                                    </div>
+                                                @else
+                                                    <div class="text-xs text-gray-400 mt-0.5">
+                                                        The marketplace keeps
+                                                        {{ round(\App\Services\Margin\NetMarginEngine::marketplaceTakePct($economics) * 100, 2) }}%
+                                                        of the retail price. Seller-Central fees do not apply to us and are not deducted.
                                                     </div>
                                                 @endif
                                             </div>
@@ -311,6 +336,20 @@
             </p>
         </div>
     </div>
+
+    <script>
+        // Bring the flagged row into view and put the cursor in it. Guarded because the
+        // product may not be on this page of results.
+        document.addEventListener('DOMContentLoaded', () => {
+            const row = document.querySelector('tr[data-focused="1"]');
+            if (!row) return;
+
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            const firstCell = row.querySelector('input');
+            if (firstCell) firstCell.focus({ preventScroll: true });
+        });
+    </script>
 
     @if($canEdit)
         <script>

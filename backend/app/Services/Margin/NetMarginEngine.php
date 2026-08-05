@@ -8,36 +8,42 @@ use App\Models\PurchaseOrder;
 use App\Support\Currency;
 
 /**
- * True net margin (§S) — the sheet's P&L formulas, become the app's own calc logic.
+ * True net margin (§S) — the vendor P&L, as the master sheet's own columns describe it.
  *
- * These are not invented. Each one was reverse-engineered from the real merged master
- * and checked against all 1,979 of its rows before being written down here; the
- * agreement counts are in NetMarginTest. The sheet's own answers are still imported and
- * kept beside ours, so any disagreement is a data-quality signal rather than a silent
- * overwrite (decision §10.9).
+ * WE ARE A VENDOR, NOT A SELLER-CENTRAL SELLER. Amazon Vendor Central, Amazon DFS and
+ * Noon Retail all BUY from us and resell themselves. What the marketplace keeps is two
+ * margins, and nothing else:
+ *
+ *     front margin - taken off the retail price to reach the invoice / PO value
+ *     back  margin - taken off the invoice to reach what we actually bank
+ *
+ * The five Seller-Central fee columns the sheet carries - fulfilment, referral,
+ * warehouse/storage, category and other fees - DO NOT APPLY to us. They are stored
+ * because the file has them, and they are never deducted by anything here.
  *
  * The chain, per unit:
  *
- *     RSP ex VAT      = RSP inc VAT / (1 + VAT)                   VAT = 5% in the UAE
- *     Net receivable  = RSP ex VAT x (1 - platform fees %)        what the channel pays us
- *     COGS            = product cost + marketing + OPEX
- *                       + packaging + other misc                  what the unit costs us
+ *     RSP ex VAT      = RSP inc VAT / (1 + VAT)              VAT = 5% in the UAE
+ *     Invoice value   = RSP ex VAT x invoice_pct_of_rsp      0.9019 Amazon · 0.98 Noon
+ *     Net receivable  = Invoice    x net_pct_of_invoice      0.78 standard
+ *     COGS            = product cost + marketing + OPEX + packaging + other misc
  *     Profit          = net receivable - COGS
- *     Profit %        = profit / COGS                             markup on cost
- *     Margin %        = profit / net receivable                   share of revenue kept
+ *     Profit %        = profit / COGS                        markup on what we spent
+ *     Margin %        = profit / net receivable              share of receipts we keep
+ *
+ * BOTH RATES ARE PER ROW, NOT PER CHANNEL. They come from the file where it states them
+ * and fall back to the channel defaults in config/operon.php otherwise. This is not
+ * over-engineering: the real file proves they vary. The standard rates reconcile with the
+ * sheet's own invoice and net-receivable columns exactly - Amazon Retail 749 of 749 on
+ * both steps, Noon 533 of 533 on the invoice step - but 151 Noon rows keep 0.80 of the
+ * invoice instead of 0.78, and every one of them is Category = FnB. Food carries a
+ * different back margin, and hardcoding 22% would have quietly overstated the
+ * marketplace's cut on all 151.
  *
  * Profit % and margin % are different questions and the sheet asks both. Profit % is
  * "what did we make on the money we spent"; margin % is "what share of what we were paid
  * did we keep". Margin is always the smaller number. Reporting one as the other is the
  * easiest mistake to make here, so they are named apart and tested apart.
- *
- * WHY THE FEE BREAKDOWN IS NOT SUMMED. The file carries five fee columns (fulfilment,
- * referral, storage, category, other) and a headline "Platform Total Fees %". In the real
- * data the five are zero on 1,930 of 1,979 rows while the percentage is populated
- * throughout, and it is the percentage that reproduces the sheet's own net receivable
- * exactly. So the percentage drives the calculation and the breakdown is stored for when
- * it is filled in. If a row ever carries both, the importer raises an anomaly rather than
- * picking one quietly.
  */
 class NetMarginEngine
 {
@@ -62,9 +68,15 @@ class NetMarginEngine
         $rspExVat = self::rspExVat($e);
         $cogs = self::cogs($e);
 
-        $netReceivable = $rspExVat === null
+        // Front margin: retail price -> invoice / PO value.
+        $invoice = $rspExVat === null
             ? null
-            : round($rspExVat * (1.0 - (float) ($e->platform_fees_pct ?? 0)), 4);
+            : round($rspExVat * self::invoicePctOfRsp($e), 4);
+
+        // Back margin: invoice -> what we actually bank.
+        $netReceivable = $invoice === null
+            ? null
+            : round($invoice * self::netPctOfInvoice($e), 4);
 
         $profit = ($netReceivable === null || $cogs === null)
             ? null
@@ -72,6 +84,7 @@ class NetMarginEngine
 
         return [
             'rsp_ex_vat' => $rspExVat,
+            'invoice_value' => $invoice,
             'net_receivable' => $netReceivable,
             'cogs' => $cogs,
             'profit' => $profit,
@@ -81,6 +94,55 @@ class NetMarginEngine
             'profit_pct' => ($profit === null || ! $cogs) ? null : round($profit / $cogs, 6),
             'margin_pct' => ($profit === null || ! $netReceivable) ? null : round($profit / $netReceivable, 6),
         ];
+    }
+
+    /**
+     * The front-margin rate: what the invoice is worth as a share of the retail price.
+     *
+     * The row's own rate wins, because it is what the file actually says about this
+     * product. The channel default only covers a row that has never been through an
+     * import - a product typed straight into the grid.
+     */
+    public static function invoicePctOfRsp(ProductChannelEconomics $e): float
+    {
+        if ($e->invoice_pct_of_rsp !== null && (float) $e->invoice_pct_of_rsp > 0) {
+            return (float) $e->invoice_pct_of_rsp;
+        }
+
+        return self::defaultRates($e->channel?->value)['invoice_pct_of_rsp'];
+    }
+
+    /** The back-margin rate: what we bank as a share of the invoice. */
+    public static function netPctOfInvoice(ProductChannelEconomics $e): float
+    {
+        if ($e->net_pct_of_invoice !== null && (float) $e->net_pct_of_invoice > 0) {
+            return (float) $e->net_pct_of_invoice;
+        }
+
+        return self::defaultRates($e->channel?->value)['net_pct_of_invoice'];
+    }
+
+    /** The channel's standard rates, for a row the file has not spoken about. */
+    public static function defaultRates(?string $channel): array
+    {
+        $rates = config('operon.margin.'.$channel);
+
+        // An unknown channel keeps the whole invoice rather than inventing a deduction.
+        // A margin that is too good is noticed; one quietly shaved is not.
+        return [
+            'invoice_pct_of_rsp' => (float) ($rates['invoice_pct_of_rsp'] ?? 1.0),
+            'net_pct_of_invoice' => (float) ($rates['net_pct_of_invoice'] ?? 1.0),
+        ];
+    }
+
+    /**
+     * What the marketplace keeps in total, as a share of the retail price.
+     * Amazon 29.65%, Noon 23.56%, Noon food 21.60%. For display and cross-checking
+     * against the sheet's own "Platform Total Fees %" column.
+     */
+    public static function marketplaceTakePct(ProductChannelEconomics $e): float
+    {
+        return round(1 - (self::invoicePctOfRsp($e) * self::netPctOfInvoice($e)), 6);
     }
 
     /**
@@ -157,17 +219,11 @@ class NetMarginEngine
     }
 
     /**
-     * The per-unit cost stack used to cost a PO line: everything except platform fees.
+     * The per-unit cost stack for a PO line: what the unit costs US.
      *
-     * ⚠ ASSUMPTION, flagged for confirmation. Platform fees are deliberately excluded
-     * here. A purchase order is wholesale - Amazon Retail and Noon Retail BUY from us at
-     * the PO's own unit cost and resell themselves, so there is no referral or fulfilment
-     * fee to pay on that transaction; those fees belong to the direct-to-customer picture
-     * (DFS, §R) where we sell at RSP. Applying the catalog's 29.65% to a wholesale PO
-     * would understate every PO's margin by roughly a third.
-     *
-     * If that reading is wrong the fix is one line, because this is the only place a PO's
-     * cost stack is assembled.
+     * The marketplace's cut is NOT in here, and must not be - it comes off the revenue
+     * side, as the back margin on the invoice. Subtracting it here as well would charge
+     * it twice.
      */
     public static function poCostPerUnit(ProductChannelEconomics $e): ?float
     {
@@ -199,28 +255,35 @@ class NetMarginEngine
     /**
      * The net P&L for one purchase order (§S: "billed 10,000 -> net 1,000 = 10%").
      *
-     * Revenue is what we actually billed, not what the catalog says we might have: units
-     * shipped x the PO line's own unit cost, which is the price on the invoice. Cost is
-     * the catalog's per-unit stack for that product on that channel. Using the real
-     * billed figure matters, because a PO is often priced differently from the catalog's
-     * standing invoice price, and the PO is the thing that happened.
+     * A PO IS THE INVOICE. Its unit cost is the price we bill the marketplace, which is
+     * the front margin already applied - so what remains to deduct on the revenue side is
+     * the BACK margin, the marketplace's cut of the invoice. We bill 100 and bank 78.
+     *
+     * That is the correction that matters most here. Treating the billed figure as money
+     * received overstates every PO's margin by the whole back margin - on the real
+     * 8-delivery PO, by about 49,000.
+     *
+     * Revenue is what we actually billed, not what the catalog says we might have: the
+     * PO's own unit cost, because the PO is the thing that happened.
      *
      * `coverage` is reported alongside, and reading it is not optional. A PO whose SKUs
-     * are half missing from the catalog produces a profit figure covering half the order,
-     * and that number is worse than useless if it is read as the whole. The money screens
-     * at M7 must show coverage next to any total built from this.
+     * are half missing from the catalog produces a profit covering half the order, and
+     * that number is worse than useless if it is read as the whole. The money screens at
+     * M7 must show coverage next to any total built from this.
      *
      * @return array<string, mixed>
      */
     public static function forPurchaseOrder(PurchaseOrder $po): array
     {
-        $billed = 0.0;          // the whole PO, costable or not
-        $costedRevenue = 0.0;   // only the part we can put a cost against
+        $billed = 0.0;          // the whole PO invoice, costable or not
+        $costedInvoice = 0.0;   // the part of it we can put a cost against
+        $netReceivable = 0.0;   // that part, after the marketplace's back margin
         $cost = 0.0;
         $costed = 0;
         $uncosted = 0;
         $uncostedUnits = 0;
         $currencies = [];
+        $backRates = [];
 
         foreach ($po->lines()->with('product.economics')->get() as $line) {
             $units = (int) $line->qty_shipped;
@@ -230,8 +293,8 @@ class NetMarginEngine
             }
 
             $currencies[] = $line->currency;
-            $lineRevenue = $units * (float) $line->unit_cost;
-            $billed += $lineRevenue;
+            $lineInvoice = $units * (float) $line->unit_cost;
+            $billed += $lineInvoice;
 
             $marketplace = $line->marketplace instanceof \BackedEnum
                 ? $line->marketplace->value
@@ -252,23 +315,34 @@ class NetMarginEngine
 
             // Revenue and cost are added together or not at all. Counting a line's
             // revenue while missing its cost would report it as pure profit.
-            $costedRevenue += $lineRevenue;
+            $backRate = self::netPctOfInvoice($economics);
+            $backRates[] = $backRate;
+
+            $costedInvoice += $lineInvoice;
+            $netReceivable += $lineInvoice * $backRate;
             $cost += $units * $perUnit;
             $costed++;
         }
 
-        $profit = $costedRevenue - $cost;
+        $profit = $netReceivable - $cost;
 
         return [
             // What the whole PO billed, whether or not we can cost it.
             'billed' => round($billed, 2),
-            // The part of that we can put a cost against, and the P&L on it.
-            'revenue_costed' => round($costedRevenue, 2),
+            // The part of that we can cost, what we bank on it, and the P&L.
+            'invoice_costed' => round($costedInvoice, 2),
+            'net_receivable' => $costed > 0 ? round($netReceivable, 2) : null,
             'cost' => round($cost, 2),
             'profit' => $costed > 0 ? round($profit, 2) : null,
-            'margin_pct' => ($costed > 0 && $costedRevenue > 0)
-                ? round($profit / $costedRevenue * 100, 2)
+            // Margin is against what we BANK, not what we billed - the honest denominator.
+            'margin_pct' => ($costed > 0 && $netReceivable > 0)
+                ? round($profit / $netReceivable * 100, 2)
                 : null,
+            // What the marketplace kept off the invoice, shown rather than buried.
+            'back_margin_deducted' => round($costedInvoice - $netReceivable, 2),
+            'back_margin_pct' => $backRates === []
+                ? null
+                : round((1 - array_sum($backRates) / count($backRates)) * 100, 2),
             'currency' => Currency::single($currencies),
             'coverage' => [
                 'lines_costed' => $costed,

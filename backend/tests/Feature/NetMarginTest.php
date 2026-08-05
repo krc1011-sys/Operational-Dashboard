@@ -39,7 +39,13 @@ class NetMarginTest extends TestCase
             'channel' => 'amazon_retail',
             'rsp_with_vat' => 36.25,
             'rsp_ex_vat' => 34.523809523809526,
-            'platform_fees_pct' => 0.296518,
+            // Amazon vendor terms: invoice is 90.19% of retail, we bank 78% of invoice.
+            'invoice_pct_of_rsp' => 0.9019,
+            'net_pct_of_invoice' => 0.78,
+            // Seller-Central fees, present in the file and never applicable to a vendor.
+            // Non-zero here on purpose: the engine must ignore them.
+            'fulfilment_fee' => 5, 'referral_fee' => 5, 'storage_fee' => 5,
+            'category_fee' => 5, 'other_fee' => 5, 'platform_fees_pct' => 0.99,
             'product_cost' => 18,
             'marketing' => 1.5568511904761906,
             'opex' => 1.8215158928571429,
@@ -49,11 +55,14 @@ class NetMarginTest extends TestCase
         ], $overrides));
     }
 
-    /** The real row, against the figures the sheet itself produces. */
+    /** The real row, against the figures the sheet itself produces (its columns N and T). */
     public function test_it_reproduces_the_sheets_own_answer(): void
     {
         $result = NetMarginEngine::compute($this->economics());
 
+        // Column N: RSP ex VAT x 0.9019.
+        $this->assertEqualsWithDelta(31.1370, $result['invoice_value'], 0.001);
+        // Column T: invoice x 0.78.
         $this->assertEqualsWithDelta(24.2869, $result['net_receivable'], 0.001);
         $this->assertEqualsWithDelta(22.3084, $result['cogs'], 0.001);
         $this->assertEqualsWithDelta(1.9785, $result['profit'], 0.001);
@@ -123,14 +132,92 @@ class NetMarginTest extends TestCase
         $this->assertLessThan(0, $result['margin_pct']);
     }
 
-    /** Higher platform fees eat margin, which is the whole point of tracking them. */
-    public function test_platform_fees_reduce_what_we_actually_receive(): void
+    /**
+     * THE correction this model exists for. We are a vendor, not a Seller-Central
+     * seller: the five fee columns in the sheet are not ours to pay and must never be
+     * deducted. The fixture sets all of them, plus a 99% blended rate, precisely so that
+     * anything reading them would produce a wildly wrong answer.
+     */
+    public function test_seller_central_fees_are_never_deducted(): void
     {
-        $low = NetMarginEngine::compute($this->economics(['platform_fees_pct' => 0.10]));
-        $high = NetMarginEngine::compute($this->economics(['platform_fees_pct' => 0.40]));
+        $withFees = NetMarginEngine::compute($this->economics());
+        $withoutFees = NetMarginEngine::compute($this->economics([
+            'fulfilment_fee' => 0, 'referral_fee' => 0, 'storage_fee' => 0,
+            'category_fee' => 0, 'other_fee' => 0, 'platform_fees_pct' => 0,
+        ]));
 
-        $this->assertGreaterThan($high['net_receivable'], $low['net_receivable']);
-        $this->assertGreaterThan($high['profit'], $low['profit']);
+        $this->assertSame($withFees['net_receivable'], $withoutFees['net_receivable']);
+        $this->assertSame($withFees['profit'], $withoutFees['profit']);
+    }
+
+    /** The two steps are separate and both bite. */
+    public function test_the_front_margin_sets_the_invoice_and_the_back_margin_what_we_bank(): void
+    {
+        $result = NetMarginEngine::compute($this->economics([
+            'rsp_ex_vat' => 100, 'rsp_with_vat' => 105,
+            'invoice_pct_of_rsp' => 0.9, 'net_pct_of_invoice' => 0.8,
+        ]));
+
+        $this->assertEqualsWithDelta(90.0, $result['invoice_value'], 0.001);
+        $this->assertEqualsWithDelta(72.0, $result['net_receivable'], 0.001);
+    }
+
+    /** Noon's front margin is 2%, not Amazon's 9.81%. */
+    public function test_noon_takes_a_smaller_front_margin_than_amazon(): void
+    {
+        $amazon = NetMarginEngine::compute($this->economics([
+            'rsp_ex_vat' => 100, 'channel' => 'amazon_retail',
+            'invoice_pct_of_rsp' => 0.9019, 'net_pct_of_invoice' => 0.78,
+        ]));
+        $noon = NetMarginEngine::compute($this->economics([
+            'rsp_ex_vat' => 100, 'channel' => 'noon_retail',
+            'invoice_pct_of_rsp' => 0.98, 'net_pct_of_invoice' => 0.78,
+        ]));
+
+        $this->assertEqualsWithDelta(90.19, $amazon['invoice_value'], 0.001);
+        $this->assertEqualsWithDelta(98.0, $noon['invoice_value'], 0.001);
+        $this->assertGreaterThan($amazon['net_receivable'], $noon['net_receivable']);
+    }
+
+    /**
+     * The 151 Noon food rows in the real file bank 0.80 of the invoice, not 0.78. The
+     * rate is stored per row precisely so this is honoured rather than flattened.
+     */
+    public function test_a_rows_own_rate_beats_the_channel_default(): void
+    {
+        $standard = NetMarginEngine::compute($this->economics([
+            'rsp_ex_vat' => 100, 'channel' => 'noon_retail',
+            'invoice_pct_of_rsp' => 0.98, 'net_pct_of_invoice' => 0.78,
+        ]));
+        $food = NetMarginEngine::compute($this->economics([
+            'rsp_ex_vat' => 100, 'channel' => 'noon_retail',
+            'invoice_pct_of_rsp' => 0.98, 'net_pct_of_invoice' => 0.80,
+        ]));
+
+        $this->assertEqualsWithDelta(76.44, $standard['net_receivable'], 0.001);
+        $this->assertEqualsWithDelta(78.40, $food['net_receivable'], 0.001);
+    }
+
+    /** A row the file never spoke about falls back to its channel's standard terms. */
+    public function test_a_row_with_no_stated_rates_uses_the_channel_defaults(): void
+    {
+        $economics = $this->economics([
+            'rsp_ex_vat' => 100, 'channel' => 'amazon_retail',
+            'invoice_pct_of_rsp' => null, 'net_pct_of_invoice' => null,
+        ]);
+
+        $this->assertSame(0.9019, NetMarginEngine::invoicePctOfRsp($economics));
+        $this->assertSame(0.78, NetMarginEngine::netPctOfInvoice($economics));
+    }
+
+    /** For cross-checking against the sheet's own "Platform Total Fees %" column. */
+    public function test_the_total_marketplace_take_is_reported(): void
+    {
+        $amazon = $this->economics(['invoice_pct_of_rsp' => 0.9019, 'net_pct_of_invoice' => 0.78]);
+        $noon = $this->economics(['invoice_pct_of_rsp' => 0.98, 'net_pct_of_invoice' => 0.78]);
+
+        $this->assertEqualsWithDelta(0.296518, NetMarginEngine::marketplaceTakePct($amazon), 0.000001);
+        $this->assertEqualsWithDelta(0.2356, NetMarginEngine::marketplaceTakePct($noon), 0.000001);
     }
 
     /** Recomputing the same inputs twice must not move the answer. */
@@ -186,8 +273,14 @@ class NetMarginTest extends TestCase
         return $po;
     }
 
-    /** Revenue is what we actually billed on the PO, not the catalog's list price. */
-    public function test_a_po_is_costed_against_what_it_actually_billed(): void
+    /**
+     * A PO is the invoice, so the front margin is already in its unit cost. What still
+     * has to come off is the BACK margin - we bill 3,000 and bank 2,340.
+     *
+     * Treating the billed figure as money received is the mistake this guards against:
+     * it would report 769.16 profit on a PO that actually makes 109.16.
+     */
+    public function test_a_po_banks_the_invoice_less_the_back_margin(): void
     {
         $economics = $this->economics();           // COGS 22.3084 per unit
         $identifier = ProductIdentifier::create([
@@ -201,10 +294,13 @@ class NetMarginTest extends TestCase
 
         $result = NetMarginEngine::forPurchaseOrder($po);
 
-        $this->assertEqualsWithDelta(3000.0, $result['billed'], 0.01);
+        $this->assertEqualsWithDelta(3000.0, $result['billed'], 0.01, 'what we invoiced');
+        $this->assertEqualsWithDelta(2340.0, $result['net_receivable'], 0.01, 'what we bank: 78% of it');
+        $this->assertEqualsWithDelta(660.0, $result['back_margin_deducted'], 0.01, "the marketplace's cut");
         $this->assertEqualsWithDelta(2230.84, $result['cost'], 0.01);
-        $this->assertEqualsWithDelta(769.16, $result['profit'], 0.01);
-        $this->assertEqualsWithDelta(25.64, $result['margin_pct'], 0.01);
+        $this->assertEqualsWithDelta(109.16, $result['profit'], 0.01);
+        // Margin is against what we bank, not what we billed.
+        $this->assertEqualsWithDelta(4.67, $result['margin_pct'], 0.01);
         $this->assertTrue($result['coverage']['complete']);
     }
 
@@ -227,8 +323,8 @@ class NetMarginTest extends TestCase
         $result = NetMarginEngine::forPurchaseOrder($po);
 
         $this->assertEqualsWithDelta(5000.0, $result['billed'], 0.01, 'the whole PO billed 5,000');
-        $this->assertEqualsWithDelta(3000.0, $result['revenue_costed'], 0.01, 'only 3,000 of it can be costed');
-        $this->assertEqualsWithDelta(769.16, $result['profit'], 0.01, 'the uncosted line adds no profit');
+        $this->assertEqualsWithDelta(3000.0, $result['invoice_costed'], 0.01, 'only 3,000 of it can be costed');
+        $this->assertEqualsWithDelta(109.16, $result['profit'], 0.01, 'the uncosted line adds no profit');
 
         $this->assertFalse($result['coverage']['complete']);
         $this->assertSame(1, $result['coverage']['lines_uncosted']);

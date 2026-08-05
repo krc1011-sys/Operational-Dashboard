@@ -127,13 +127,18 @@ class MasterCatalogTest extends TestCase
      */
     public function test_one_product_carries_separate_economics_per_channel(): void
     {
+        $rspEx = 34.523809523809526;
+
         $this->upload([
-            $this->row(),
+            // Amazon VC: invoice is 90.19% of retail, we bank 78% of that.
+            $this->row(['icp' => $rspEx * 0.9019, 'net_recv' => $rspEx * 0.9019 * 0.78]),
+            // Amazon DFS: identical terms to VC.
             $this->row(['customer_code' => 'TY7WK', 'customer_name' => 'Amazon UAE - DS - TY7WK',
-                'fees_pct' => 0.15, 'net_recv' => null, 'profit' => null]),
+                'icp' => $rspEx * 0.9019, 'net_recv' => $rspEx * 0.9019 * 0.78]),
+            // Noon: only a 2% front margin, so more reaches us.
             $this->row(['customer_code' => 'LE3WVRU3GAE', 'customer_name' => 'Noon Retail',
-                'sku' => 'ZF6F5E382F65F702DF8CCZ-1', 'fees_pct' => 0.2356,
-                'net_recv' => null, 'profit' => null]),
+                'sku' => 'ZF6F5E382F65F702DF8CCZ-1',
+                'icp' => $rspEx * 0.98, 'net_recv' => $rspEx * 0.98 * 0.78]),
         ]);
 
         $product = Product::where('company_product_code', 'BD00000001')->firstOrFail();
@@ -144,9 +149,67 @@ class MasterCatalogTest extends TestCase
 
         $retail = $product->economics->firstWhere('channel.value', 'amazon_retail');
         $dfs = $product->economics->firstWhere('channel.value', 'amazon_dfs');
+        $noon = $product->economics->firstWhere('channel.value', 'noon_retail');
 
-        $this->assertGreaterThan((float) $retail->profit, (float) $dfs->profit,
-            'lower platform fees leave more profit');
+        // Vendor Central and DFS carry identical terms.
+        $this->assertEqualsWithDelta((float) $retail->profit, (float) $dfs->profit, 0.001,
+            'VC and DFS take the same front and back margin');
+
+        // Noon's front margin is 2% against Amazon's 9.81%, so more reaches us.
+        $this->assertGreaterThan((float) $retail->profit, (float) $noon->profit,
+            "Noon's smaller front margin leaves more profit");
+
+        $this->assertEqualsWithDelta(0.9019, (float) $retail->invoice_pct_of_rsp, 0.0001);
+        $this->assertEqualsWithDelta(0.98, (float) $noon->invoice_pct_of_rsp, 0.0001);
+        $this->assertEqualsWithDelta(0.78, (float) $noon->net_pct_of_invoice, 0.0001);
+    }
+
+    /**
+     * The 151 Noon food rows in the real file bank 0.80 of the invoice rather than 0.78.
+     * The rate is read from the file, not forced to the channel standard, and the
+     * exception is reported once with a count rather than 151 times.
+     */
+    public function test_a_channel_rate_exception_is_honoured_and_reported_once(): void
+    {
+        $rspEx = 34.523809523809526;
+
+        $this->upload([
+            $this->row(['customer_code' => 'LE3WVRU3GAE', 'customer_name' => 'Noon Retail',
+                'sku' => 'ZAAAZ-1', 'category' => 'FnB',
+                'icp' => $rspEx * 0.98, 'net_recv' => $rspEx * 0.98 * 0.80]),
+        ]);
+
+        $economics = ProductChannelEconomics::firstOrFail();
+
+        $this->assertEqualsWithDelta(0.80, (float) $economics->net_pct_of_invoice, 0.0001,
+            'the file said 0.80 and the file is right');
+
+        $anomaly = MasterAnomaly::where('kind', MasterAnomaly::KIND_MARGIN_RATE_EXCEPTION)->firstOrFail();
+
+        $this->assertStringContainsString('21.6', $anomaly->message, 'reports the real take');
+        $this->assertSame(MasterAnomaly::SEVERITY_NOTE, $anomaly->severity);
+    }
+
+    /** Seller-Central fees are stored because the file has them, and never deducted. */
+    public function test_seller_central_fee_columns_do_not_change_the_margin(): void
+    {
+        $rspEx = 34.523809523809526;
+        $base = ['icp' => $rspEx * 0.9019, 'net_recv' => $rspEx * 0.9019 * 0.78];
+
+        $this->upload([$this->row($base)]);
+        $without = (float) ProductChannelEconomics::firstOrFail()->profit;
+
+        $this->upload([$this->row($base + [])]);
+        ProductChannelEconomics::query()->delete();
+        Product::query()->delete();
+
+        $this->upload([$this->row(array_merge($base, [
+            'ff' => 5, 'rf' => 5, 'sf' => 5, 'cf' => 5, 'of' => 5,
+        ]))]);
+        $with = (float) ProductChannelEconomics::firstOrFail()->profit;
+
+        $this->assertEqualsWithDelta($without, $with, 0.001,
+            'we are a vendor - those fees are not ours to pay');
     }
 
     public function test_a_reupload_updates_rather_than_duplicates(): void

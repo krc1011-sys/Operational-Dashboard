@@ -228,6 +228,35 @@ class VerifySampleFiles extends Command
         $this->line('  <fg=gray>This is what switches on the brand and category filters M5 built.</>');
 
         $this->line('');
+        $this->line('  Front and back margin vs the sheet\'s own invoice / net-receivable columns');
+
+        // Counted in SQL rather than by loading 2,000 models - this command runs the whole
+        // sample set and had no business holding the catalog in memory four times over.
+        [$invoiceOk, $invoiceTotal] = $this->agreementCounts('invoice_value', 'invoice_cost_price');
+        [$netOk, $netTotal] = $this->agreementCounts('net_receivable', 'net_receivable_imported');
+
+        $this->row('  RSP x front margin = the sheet\'s invoice', $invoiceOk, $invoiceTotal);
+        $this->row('  Invoice x back margin = the sheet\'s net', $netOk, $netTotal);
+
+        foreach (ProductChannelEconomics::selectRaw(
+            'channel, invoice_pct_of_rsp, net_pct_of_invoice, COUNT(*) as row_count')
+            ->whereNotNull('net_pct_of_invoice')
+            ->groupBy('channel', 'invoice_pct_of_rsp', 'net_pct_of_invoice')
+            ->orderByDesc('row_count')->get() as $group) {
+            $this->line(sprintf(
+                '    %-14s front %-7s back %-6s  %5s rows   marketplace keeps %s%%',
+                $group->channel?->value,
+                rtrim(rtrim(number_format((float) $group->invoice_pct_of_rsp, 4), '0'), '.'),
+                rtrim(rtrim(number_format((float) $group->net_pct_of_invoice, 4), '0'), '.'),
+                number_format($group->row_count),
+                round((1 - (float) $group->invoice_pct_of_rsp * (float) $group->net_pct_of_invoice) * 100, 2),
+            ));
+        }
+
+        $this->line('  <fg=gray>Seller-Central fees (fulfilment / referral / storage / category / other) are');
+        $this->line('  stored because the file carries them and are never deducted - we are a vendor.</>');
+
+        $this->line('');
         $this->line('  Our P&L vs the sheet\'s own figures');
 
         $disagreeing = 0;
@@ -238,17 +267,17 @@ class VerifySampleFiles extends Command
             'profit' => 'Profit',
             'margin_pct' => 'Margin %',
         ] as $column => $label) {
-            $rows = ProductChannelEconomics::whereNotNull($column.'_imported')->get();
-            $differ = $rows->filter(fn ($e) => abs((float) $e->{$column} - (float) $e->{$column.'_imported'}) >= 0.01);
-            $disagreeing += $differ->count();
+            [$agree, $total] = $this->agreementCounts($column, $column.'_imported', 0.01);
+            $differ = $total - $agree;
+            $disagreeing += $differ;
 
             $this->line(sprintf(
                 '  %s %-38s %s of %s%s',
-                $differ->isEmpty() ? '<fg=green>✓</>' : '<fg=yellow>·</>',
+                $differ === 0 ? '<fg=green>✓</>' : '<fg=yellow>·</>',
                 $label.' matches',
-                number_format($rows->count() - $differ->count()),
-                number_format($rows->count()),
-                $differ->isEmpty() ? '' : '   <fg=yellow>('.$differ->count().' differ)</>'
+                number_format($agree),
+                number_format($total),
+                $differ === 0 ? '' : '   <fg=yellow>('.$differ.' differ)</>'
             ));
         }
 
@@ -575,6 +604,37 @@ class VerifySampleFiles extends Command
     }
 
     /** Print an actual-vs-expected line with a tick or a cross. */
+    /**
+     * How many rows agree between two columns, and how many could be compared at all.
+     * Done in SQL so the whole catalog never has to be held in memory.
+     *
+     * @return array{0:int, 1:int}
+     */
+    private function agreementCounts(string $ours, string $theirs, ?float $absolute = null): array
+    {
+        // Both sides must exist to be compared. A row where the sheet says 0 and we say
+        // "unknown" is not an agreement and not a disagreement - it is not a comparison,
+        // and counting it either way would be the null-is-zero mistake this codebase
+        // avoids everywhere else.
+        $base = ProductChannelEconomics::query()
+            ->whereNotNull($theirs)
+            ->whereNotNull($ours)
+            ->when($absolute === null, fn ($q) => $q->where($theirs, '>', 0));
+
+        $total = (clone $base)->count();
+
+        // Agreement is within a fils, or within a tenth of a percent for larger figures.
+        $agree = (clone $base)
+            ->whereRaw(
+                $absolute === null
+                    ? "ABS({$ours} - {$theirs}) <= MAX(0.01, ABS({$theirs}) * 0.001)"
+                    : "ABS({$ours} - {$theirs}) < {$absolute}"
+            )
+            ->count();
+
+        return [$agree, $total];
+    }
+
     private function row(string $label, mixed $actual, mixed $expected): void
     {
         $ok = is_float($expected) || is_float($actual)

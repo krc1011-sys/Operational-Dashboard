@@ -71,6 +71,9 @@ class MasterController extends Controller
             'reviewCount' => MasterAnomaly::needsReview()->count(),
             'noteCount' => MasterAnomaly::open()->where('severity', MasterAnomaly::SEVERITY_NOTE)->count(),
             'filters' => $request->only(['q', 'brand', 'category', 'sub_category', 'owner', 'flagged']),
+            // Set when a reviewer has clicked a flagged item: that product's row is
+            // scrolled to, highlighted and focused, and the flag list starts collapsed.
+            'focus' => $request->string('focus')->toString() ?: null,
             'brands' => Product::whereNotNull('brand')->distinct()->orderBy('brand')->pluck('brand'),
             'categories' => Product::whereNotNull('category')->distinct()->orderBy('category')->pluck('category'),
             'subCategories' => Product::whereNotNull('sub_category')->distinct()->orderBy('sub_category')->pluck('sub_category'),
@@ -196,6 +199,7 @@ class MasterController extends Controller
     private function derivedFor(ProductChannelEconomics $e): array
     {
         return [
+            'invoice_value' => $e->invoice_value === null ? null : Currency::amount($e->invoice_value, $e->currency),
             'net_receivable' => $e->net_receivable === null ? null : Currency::amount($e->net_receivable, $e->currency),
             'cogs' => $e->cogs === null ? null : Currency::amount($e->cogs, $e->currency),
             'profit' => $e->profit === null ? null : Currency::amount($e->profit, $e->currency),

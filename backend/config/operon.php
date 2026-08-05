@@ -85,6 +85,38 @@ return [
     'vat_rate' => 0.05,
 
     /*
+    |--------------------------------------------------------------------------
+    | Front and back margin  (the marketplace's cut)
+    |--------------------------------------------------------------------------
+    |
+    | WE ARE A VENDOR, NOT A SELLER-CENTRAL SELLER. Amazon Vendor Central, Amazon DFS
+    | and Noon Retail all BUY from us. What the marketplace keeps is:
+    |
+    |   front margin - taken off the retail price to reach the invoice/PO value
+    |   back  margin - taken off the invoice to reach what we actually bank
+    |
+    |     Invoice        = RSP ex VAT x invoice_pct_of_rsp
+    |     Net receivable = Invoice     x net_pct_of_invoice
+    |
+    | The Seller-Central fee columns in the master sheet - fulfilment, referral,
+    | warehouse/storage, category and other fees - DO NOT APPLY to us and are never
+    | deducted. They are stored because the file carries them, and ignored.
+    |
+    | These are DEFAULTS. Each product-channel row stores its own two rates, taken from
+    | the file where it states them, because they genuinely vary: 151 Noon rows - every
+    | one of them Category = FnB - keep 0.80 of the invoice rather than 0.78.
+    |
+    | Amazon: 0.9019 x 0.78 = 0.703482 -> the marketplace takes 29.65%
+    | Noon:   0.98   x 0.78 = 0.7644   -> the marketplace takes 23.56%
+    | Noon food: 0.98 x 0.80 = 0.784   -> the marketplace takes 21.60%
+    */
+    'margin' => [
+        'amazon_retail' => ['invoice_pct_of_rsp' => 0.9019, 'net_pct_of_invoice' => 0.78],
+        'amazon_dfs' => ['invoice_pct_of_rsp' => 0.9019, 'net_pct_of_invoice' => 0.78],
+        'noon_retail' => ['invoice_pct_of_rsp' => 0.98, 'net_pct_of_invoice' => 0.78],
+    ],
+
+    /*
      | The §S cost rule, as a switch rather than a comment.
      |
      | 'latest'   — a product has several suppliers; take the most recent price. The

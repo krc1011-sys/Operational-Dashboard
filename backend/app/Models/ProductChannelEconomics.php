@@ -37,15 +37,23 @@ class ProductChannelEconomics extends Model
      */
     public const EDITABLE = [
         'rsp_with_vat', 'rsp_ex_vat', 'invoice_cost_price',
-        'fulfilment_fee', 'referral_fee', 'storage_fee', 'category_fee', 'other_fee',
-        'platform_fees_pct',
+        // The marketplace's two margins. Editable because they are commercial terms that
+        // get renegotiated, and the file is not always the first to know.
+        'invoice_pct_of_rsp', 'net_pct_of_invoice',
         'product_cost', 'marketing', 'opex', 'packaging', 'other_misc',
         'currency',
     ];
 
+    /*
+     * NOT editable and never deducted: the five Seller-Central fee columns
+     * (fulfilment_fee, referral_fee, storage_fee, category_fee, other_fee) and the
+     * blended platform_fees_pct. We are a vendor - the marketplace buys from us - so
+     * those fees are not ours to pay. They are stored because the file carries them.
+     */
+
     /** The engine's own output. Written only by NetMarginEngine. */
     public const DERIVED = [
-        'net_receivable', 'cogs', 'profit', 'profit_pct', 'margin_pct',
+        'invoice_value', 'net_receivable', 'cogs', 'profit', 'profit_pct', 'margin_pct',
     ];
 
     protected function casts(): array
@@ -63,6 +71,9 @@ class ProductChannelEconomics extends Model
             'category_fee' => 'decimal:4',
             'other_fee' => 'decimal:4',
             'platform_fees_pct' => 'decimal:6',
+            'invoice_pct_of_rsp' => 'decimal:6',
+            'net_pct_of_invoice' => 'decimal:6',
+            'invoice_value' => 'decimal:4',
             'product_cost' => 'decimal:4',
             'marketing' => 'decimal:4',
             'opex' => 'decimal:4',

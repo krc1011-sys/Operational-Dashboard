@@ -155,6 +155,7 @@ class MasterSheetImporter implements Importer
         }
 
         $this->raiseCrossChannelAnomalies();
+        $this->raiseMarginRateAnomalies();
         $this->persistAnomalies($sourceFile);
 
         return ['read' => $read, 'imported' => $imported, 'skipped' => $skipped];
@@ -428,13 +429,18 @@ class MasterSheetImporter implements Importer
             'is_manual' => false,
         ]);
 
+        // The two margin rates this row actually implies. Derived from the file's own
+        // invoice and net-receivable columns rather than assumed from the channel,
+        // because they genuinely vary - Noon food banks 0.80 of the invoice where
+        // everything else banks 0.78.
+        $this->deriveMarginRates($economics, $channel);
+
         $economics->setRelation('product', $product);
 
         // Our own figures, computed from the inputs above - the source of truth (§S).
         NetMarginEngine::apply($economics);
         $economics->save();
 
-        $this->checkFeeBasis($economics, $product, $channel);
         $this->checkAgainstSheet($economics, $product, $channel);
         $this->carryThroughFileFlag($economics, $product, $channel);
     }
@@ -470,20 +476,96 @@ class MasterSheetImporter implements Importer
         );
     }
 
-    /** Both a fee breakdown and a headline percentage means we cannot tell which is meant. */
-    private function checkFeeBasis(ProductChannelEconomics $e, Product $product, Channel $channel): void
+    /**
+     * Work out this row's front and back margin from what the file states.
+     *
+     *     front: invoice / RSP ex VAT      back: net receivable / invoice
+     *
+     * Where the file gives no figure to divide, the channel default stands. Nothing is
+     * inferred from the Seller-Central fee columns, which do not apply to a vendor.
+     */
+    private function deriveMarginRates(ProductChannelEconomics $e, Channel $channel): void
     {
-        $breakdown = (float) $e->fulfilment_fee + (float) $e->referral_fee
-            + (float) $e->storage_fee + (float) $e->category_fee + (float) $e->other_fee;
+        $rspExVat = NetMarginEngine::rspExVat($e);
+        $invoice = (float) ($e->invoice_cost_price ?? 0);
+        $net = (float) ($e->net_receivable_imported ?? 0);
 
-        if ($breakdown > 0 && (float) $e->platform_fees_pct > 0) {
+        if ($rspExVat !== null && $rspExVat > 0 && $invoice > 0) {
+            $e->invoice_pct_of_rsp = self::cleanRate($invoice / $rspExVat);
+        }
+
+        if ($invoice > 0 && $net > 0) {
+            $e->net_pct_of_invoice = self::cleanRate($net / $invoice);
+        }
+    }
+
+    /**
+     * A rate is a commercial term, not a measurement.
+     *
+     * Dividing the sheet's rounded currency columns gives 0.979994 and 0.980028 where the
+     * agreement is plainly 0.98 - the noise is an artifact of the file storing money to
+     * two decimals, not a real difference. Rounding to four decimals, which is the
+     * precision these terms are actually quoted in (0.9019, 0.98, 0.78, 0.80), recovers
+     * the term that was meant. Without it every row looks like its own special deal and
+     * the genuine exceptions are impossible to see.
+     */
+    private static function cleanRate(float $rate): float
+    {
+        return round($rate, 4);
+    }
+
+    /**
+     * Rows whose margin rates are not the channel's standard ones.
+     *
+     * Reported once per (channel, rate pair) with a count, not once per row - 151
+     * separate notes saying the same thing would bury the seven that need a decision.
+     */
+    private function raiseMarginRateAnomalies(): void
+    {
+        $groups = ProductChannelEconomics::query()
+            ->selectRaw('channel, invoice_pct_of_rsp, net_pct_of_invoice, COUNT(*) as row_count')
+            ->whereNotNull('net_pct_of_invoice')
+            ->groupBy('channel', 'invoice_pct_of_rsp', 'net_pct_of_invoice')
+            ->get();
+
+        foreach ($groups as $group) {
+            $channel = $group->channel;
+            $defaults = NetMarginEngine::defaultRates($channel?->value);
+
+            $frontDiffers = abs((float) $group->invoice_pct_of_rsp - $defaults['invoice_pct_of_rsp']) > 0.0001;
+            $backDiffers = abs((float) $group->net_pct_of_invoice - $defaults['net_pct_of_invoice']) > 0.0001;
+
+            if (! $frontDiffers && ! $backDiffers) {
+                continue;
+            }
+
+            $take = round((1 - (float) $group->invoice_pct_of_rsp * (float) $group->net_pct_of_invoice) * 100, 2);
+            $standardTake = round((1 - $defaults['invoice_pct_of_rsp'] * $defaults['net_pct_of_invoice']) * 100, 2);
+
             $this->flag(
-                kind: MasterAnomaly::KIND_FEE_BASIS_AMBIGUOUS,
-                code: $product->company_product_code,
-                product: $product,
+                kind: MasterAnomaly::KIND_MARGIN_RATE_EXCEPTION,
+                code: '',
                 channel: $channel,
-                message: "{$product->company_product_code} on {$channel->label()} gives fees twice: itemised (".number_format($breakdown, 2).') and as a percentage ('.round((float) $e->platform_fees_pct * 100, 2).'%). The percentage was used, because that is what the rest of the sheet is built on. If the itemised figures are the accurate ones, this product\'s margin is wrong.',
-                details: ['breakdown_total' => round($breakdown, 4), 'platform_fees_pct' => (float) $e->platform_fees_pct],
+                severity: MasterAnomaly::SEVERITY_NOTE,
+                message: sprintf(
+                    '%d %s row(s) use a different marketplace cut from the rest of the channel: '
+                    .'the invoice is %s of the retail price and we bank %s of the invoice, so the '
+                    .'marketplace keeps %s%% rather than the usual %s%%. These figures come from the '
+                    .'file itself and are used as given - the standard rates are not forced onto them.',
+                    $group->row_count,
+                    $channel?->label() ?? 'unknown-channel',
+                    rtrim(rtrim(number_format((float) $group->invoice_pct_of_rsp, 4), '0'), '.'),
+                    rtrim(rtrim(number_format((float) $group->net_pct_of_invoice, 4), '0'), '.'),
+                    $take,
+                    $standardTake,
+                ),
+                details: [
+                    'rows' => (int) $group->row_count,
+                    'invoice_pct_of_rsp' => (float) $group->invoice_pct_of_rsp,
+                    'net_pct_of_invoice' => (float) $group->net_pct_of_invoice,
+                    'marketplace_take_pct' => $take,
+                    'standard_take_pct' => $standardTake,
+                ],
             );
         }
     }
@@ -616,7 +698,7 @@ class MasterSheetImporter implements Importer
 
     private function flag(
         string $kind,
-        string $code,
+        ?string $code,
         ?Product $product = null,
         ?Channel $channel = null,
         string $severity = MasterAnomaly::SEVERITY_REVIEW,

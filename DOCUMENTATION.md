@@ -713,9 +713,14 @@ specified in the blueprint and should be confirmed.
     "0%" would read as breaking even. Applies to the 49 things we buy and never sell.
 29. **Only inputs are editable in the grid.** Derived figures have no input and the server
     refuses to set one. Change an input and the engine recomputes.
-30. **⚠ assumption — platform fees are excluded from a PO's cost stack.** A PO is
-    wholesale, so the marketplace buys from us rather than charging us to sell; those fees
-    belong to the direct-to-customer picture. See §12.6 — one line to change if wrong.
+30. ~~**⚠ assumption — platform fees are excluded from a PO's cost stack.**~~
+    **Superseded (§12.3, §12.6).** The assumption was half right and half wrong, and the
+    wrong half mattered. Right: the Seller-Central fee columns do not apply to us, because
+    we are a vendor — the marketplace buys from us. Wrong: that did not make a PO
+    fee-free. The marketplace's **back margin** comes off the invoice, so a PO bills 100
+    and banks 78. Leaving it out overstated the real 8-delivery PO's profit by 49,059 —
+    36.14% where the truth is 18.13%. Front and back margin are now explicit, stored per
+    row, and reconciled against the sheet's own invoice and net-receivable columns.
 31. **⚠ assumption — the master screen's PIN gates the money, not the door.** §O grants
     `view-master` to most roles and §S says the editable master is Admin + PIN. Putting
     the PIN on the route would bounce roles §O admits. The columns and the writes are
@@ -724,6 +729,15 @@ specified in the blueprint and should be confirmed.
     and cancellations that are historical fact.
 33. **Casing is not a disagreement.** 73 products spell their brand differently across
     channels and every one is only capitalisation. Flagging them would bury the real ones.
+34. **Margin rates are data, not constants.** The front and back margins are stored per
+    product-channel row, taken from the file where it states them, with the channel
+    standard as a fallback. 151 Noon food rows genuinely bank 0.80 of the invoice rather
+    than 0.78; hardcoding the standard would have silently overstated the marketplace's
+    cut on every one of them.
+35. **Derived rates are rounded to four decimals.** A rate is a commercial term, not a
+    measurement. Dividing the sheet's rounded currency columns produces 0.979994 where the
+    deal is plainly 0.98, and leaving that noise in made 400 rows each look like their own
+    special arrangement, hiding the two real exceptions.
 
 ---
 
@@ -744,7 +758,8 @@ Carried forward from blueprint §H, plus what the build has raised.
 | — | **`BD62972744` — one code covering two products** | **Open, raised at M6.** Needs the two products split apart; until then that SKU's margin rests on whichever cost the merge chose |
 | — | **`BD07965870` — a Noon row holding an ASIN** | **Open, raised at M6.** Loaded as Noon exactly as given. Typo or mis-filed listing? They need opposite fixes |
 | — | **Three products costed differently per channel** | **Open, raised at M6** — 43.87/45, 40/43, 12.50/13 |
-| — | **Do platform fees apply to a wholesale PO?** | **Assumed no** (§12.6). One line to change if wrong |
+| — | ~~Do platform fees apply to a wholesale PO?~~ | **Resolved.** Seller-Central fees never apply (we are a vendor); the marketplace's back margin does. Reconciled against the sheet's own columns (§12.3) |
+| — | **The 5 Amazon DFS rows taking no front margin** | Raised at M6 — invoice = full retail price, 20% back margin. Loaded as given |
 | — | **The sheet's COGS is 0 for 49 packaging items** | Ours says otherwise and flags it; the sheet looks wrong |
 
 ---
@@ -758,11 +773,9 @@ and the engine that works out what we actually make on it.
 ### 12.1 The shape the real file turned out to have
 
 `OperON_Master_Merged.xlsx` is **one row per product × channel**, not one per product —
-1,979 rows covering 914 products. That single fact drove the schema.
-
-The same product genuinely earns differently depending on who sells it. One BD code sells
-on Amazon VC at a 29.65% platform fee and on Noon at 23.56%, at different invoice prices
-with different marketing behind it. And **727 of the 914 products sell on more than one
+1,979 rows covering 914 products — because the same product earns differently depending on who sells it. The
+marketplace's cut is 29.65% of retail on Amazon and 23.56% on Noon, at different invoice
+prices with different marketing behind it. And **727 of the 914 products sell on more than one
 channel**, while **641 ASINs are listed on both Amazon Retail and Amazon DFS**.
 
 So M1's `products` table, which assumed one set of economics per product, was split:
@@ -789,44 +802,75 @@ category filters and group-by, which M5 built and which had been honestly report
 in the catalog yet", now work on real data. Nothing in M5 changed — the `product_id`
 column it was already reading simply stopped being null (§K).
 
-### 12.3 The net-margin engine
+### 12.3 The net-margin engine — the vendor model
 
-The sheet's P&L became the app's own calc logic (§S). Each formula was reverse-engineered
-from the real file and checked against **all 1,979 rows** before being written down:
+**We are a vendor, not a Seller-Central seller.** Amazon Vendor Central, Amazon DFS and
+Noon Retail all *buy* from us and resell themselves. What the marketplace keeps is two
+margins and nothing else:
+
+- **front margin** — taken off the retail price to reach the invoice / PO value
+- **back margin** — taken off the invoice to reach what we actually bank
 
 ```
-RSP ex VAT      = RSP inc VAT / 1.05          VAT lives in config; KSA's 15% is a config change
-Net receivable  = RSP ex VAT × (1 − fees %)   what the channel actually pays us
+RSP ex VAT      = RSP inc VAT / 1.05            VAT in config; KSA's 15% is a config change
+Invoice value   = RSP ex VAT × invoice_pct_of_rsp     0.9019 Amazon · 0.98 Noon
+Net receivable  = Invoice    × net_pct_of_invoice     0.78 standard
 COGS            = product cost + marketing + OPEX + packaging + other misc
 Profit          = net receivable − COGS
-Profit %        = profit / COGS               markup on what we spent
-Margin %        = profit / net receivable     share of what we were paid that we keep
+Profit %        = profit / COGS                 markup on what we spent
+Margin %        = profit / net receivable       share of receipts we keep
 ```
 
-**Profit % and margin % are different questions**, and the sheet asks both. Margin is
-always the smaller number. They are named apart and tested apart because reporting one as
-the other is the easiest mistake available here.
+**The five Seller-Central fee columns in the sheet — fulfilment, referral,
+warehouse/storage, category and other — DO NOT APPLY to us and are never deducted by
+anything.** They are stored because the file carries them, and ignored. `NetMarginTest`
+sets all five to non-zero *and* the blended rate to 99%, then asserts the answer does not
+move: anything that started reading them would fail loudly.
 
-**Why the fee breakdown is not summed.** The file has five fee columns *and* a headline
-"Platform Total Fees %". The five are zero on 1,930 of 1,979 rows while the percentage is
-populated throughout, and it is the percentage that reproduces the sheet's own net
-receivable exactly. So the percentage drives the calculation, the breakdown is stored for
-when it gets filled in, and a row carrying **both** raises an anomaly rather than having
-one picked for it quietly.
+**Both rates are stored per row, not assumed per channel**, because the real file proves
+they vary:
 
-**Agreement with the sheet, on the real file:**
+| Channel | Front | Back | Rows | Marketplace keeps |
+|---|---|---|---|---|
+| Amazon Retail | 0.9019 | 0.78 | 748 | 29.65% |
+| Amazon DFS | 0.9019 | 0.78 | 643 | 29.65% |
+| Noon Retail | 0.98 | 0.78 | 382 | 23.56% |
+| **Noon Retail — food** | 0.98 | **0.80** | **151** | **21.60%** |
+| Amazon DFS — 5 outliers | 1.0 | 0.80 | 5 | 20.00% |
 
-| Figure | Ours matches theirs |
+Vendor Central and DFS are identical, as specified. The 151 Noon rows that bank 0.80
+rather than 0.78 are **every one of them `Category = FnB`** — food carries a different back
+margin, and their own `Platform Total Fees %` column says 21.6%, which agrees exactly.
+Hardcoding 22% would have quietly overstated the marketplace's cut on all 151. The rates
+come from the file where it states them and fall back to the channel defaults in
+`config/operon.php` for a product typed into the grid by hand.
+
+A rate is a commercial term, not a measurement. Dividing the sheet's rounded currency
+columns gives 0.979994 and 0.980028 where the agreement is plainly 0.98, so derived rates
+are rounded to four decimals — the precision these terms are actually quoted in. Without
+that every row looked like its own special deal and the two genuine exceptions were
+invisible among 400 phantom ones.
+
+**Reconciliation with the sheet's own columns** (`operon:verify-samples` asserts all of it):
+
+| Check | Result |
 |---|---|
-| Net receivable | 1,978 of 1,978 |
-| Profit | 1,977 of 1,977 |
-| Margin % | 1,977 of 1,977 |
+| RSP × front margin = the sheet's Invoice Cost Price | **1,929 of 1,929** |
+| Invoice × back margin = the sheet's Net Receivable | **1,929 of 1,929** |
+| Net receivable | 1,929 of 1,929 |
+| Profit | 1,928 of 1,928 |
+| Margin % | 1,928 of 1,928 |
 | COGS | 1,928 of 1,977 — **49 differ, all flagged** |
 
 Those 49 are the packaging materials (`BD2000xx`, "Plain carton"). The sheet totals their
 COGS as zero while each plainly has a product cost. **Ours is the right figure** and every
-one is on the review list. `verify-samples` asserts the property that matters: *every*
+one is on the review list. The command asserts the property that matters: *every*
 disagreement is flagged, none is silent.
+
+Rows that cannot be compared are excluded from both sides of these counts. A row where
+the sheet says 0 and we say "unknown" is not an agreement and not a disagreement — it is
+not a comparison, and counting it either way would be the null-is-zero mistake this
+codebase avoids everywhere else.
 
 **Things we buy and never sell report no margin, not 0%.** Those same 49 rows have a cost
 and no selling price. "0% margin" would read as breaking even; the truth is the question
@@ -887,28 +931,40 @@ a person changed from what the file said.
 **Removing a product retires it.** A hard delete would orphan PO lines, shipment lines and
 cancellations that are historical fact.
 
+**A flag leads straight to the fix.** Clicking a flagged product's code filters to it,
+scrolls its row into view, highlights it and puts the cursor in the first cell — and the
+flag list arrives collapsed, because you came to fix one product, not to re-read the list
+you just clicked. Previously the link filtered the page and nothing visibly happened: the
+row was below a full-height flag panel, so it read as going nowhere.
+
 ### 12.6 PO-level P&L
 
 §S's "billed 10,000 → net 1,000 = 10%", computed by the engine and ready for M7 to render.
 
-Revenue is **what we actually billed** — units shipped × the PO line's own unit cost —
-not the catalog's list price, because the PO is the thing that happened. Cost is the
-catalog's per-unit stack.
+**A PO is the invoice.** Its unit cost is the price we bill the marketplace, so the front
+margin is already applied — what still has to come off is the **back margin**, the
+marketplace's cut of the invoice. We bill 100 and bank 78.
+
+Revenue is what we actually billed, not the catalog's list price, because the PO is the
+thing that happened. The real 8-delivery PO:
+
+```
+invoiced (billed)        223,511.20
+costable part            222,996.40
+less back margin 22%     − 49,059.21
+= net receivable         173,937.19
+less our costs           −142,399.50
+= net profit              31,537.69      margin 18.13%
+coverage: 85 of 86 lines costed
+```
 
 **Coverage travels with the answer and reading it is not optional.** A PO whose SKUs are
 half missing from the catalog yields a profit covering half the order, and that number is
 worse than useless if read as the whole. So a line that cannot be costed contributes
 **neither** its cost **nor** its revenue, and the result reports how many lines and units
-were left out. On the real 8-delivery PO: billed 223,511.20, of which 222,996.40 could be
-costed, cost 142,399.50, **profit 80,596.90 at 36.14%**, 85 of 86 lines covered.
+were left out.
 
-> **⚠ assumption — platform fees are excluded from a PO's cost stack.** A PO is wholesale:
-> Amazon Retail and Noon Retail *buy* from us at the PO's unit cost and resell themselves,
-> so there is no referral or fulfilment fee on that transaction — those belong to the
-> direct-to-customer picture (DFS, §R). Applying the catalog's 29.65% to a wholesale PO
-> would understate every PO's margin by roughly a third. If that reading is wrong, the fix
-> is one line: `NetMarginEngine::poCostPerUnit()` is the only place a PO's cost stack is
-> assembled.
+Margin is expressed against what we **bank**, not what we billed — the honest denominator.
 
 ### 12.7 The cost rule is provisional, and says so
 
@@ -935,16 +991,16 @@ also honours `Accept: application/json`, which affects nothing else.
 
 ### 12.9 Tests
 
-`NetMarginTest` (15) works the arithmetic from a real row of the file, with the sheet's own
+`NetMarginTest` (20) works the arithmetic from a real row of the file, with the sheet's own
 answers as the expected values — including the two percentages being different questions,
 loss-making products, division-by-zero guards, things we buy but never sell, and the PO
 coverage rule.
-`MasterCatalogTest` (19) drives the real upload pipeline over a fixture that reproduces the
+`MasterCatalogTest` (21) drives the real upload pipeline over a fixture that reproduces the
 file's awkward parts, and asserts each anomaly is raised **and the row still loaded**, that
 the Noon-row-holding-an-ASIN is not moved, that editing needs both the permission and the
 PIN, that a derived figure cannot be typed in, and that money stays out of the export for
 roles that may not see it.
-Full suite: **193 passing**.
+Full suite: **204 passing**.
 
 ---
 
@@ -1008,8 +1064,12 @@ repeated here because they are the source of most potential bugs:
   double-counts products that sell on more than one channel — 727 of 914 do.
 - **Profit % ≠ margin %.** Profit % is profit ÷ COGS; margin % is profit ÷ net receivable.
   Margin is always smaller.
-- Net receivable comes from **`Platform Total Fees %`**, not from summing the five fee
-  columns — those are zero on almost every row.
+- **The five Seller-Central fee columns never apply to us.** We are a vendor: the
+  marketplace buys from us. Net receivable is retail × front margin × back margin.
+- **Noon food (`Category = FnB`) banks 0.80 of the invoice, not 0.78** — 151 rows. Its
+  `Platform Total Fees %` reads 21.6% rather than 23.56%, and that is correct.
+- `Platform Total Fees %` is a **cross-check**, not an input. It equals
+  1 − (front × back).
 - `Currency` holds the literal string **`0`** on 49 rows (the packaging materials). It is
   not a currency and is read as absent.
 - A row with **no selling price has no margin** — null, not zero. It is something we buy.
