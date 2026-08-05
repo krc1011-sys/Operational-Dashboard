@@ -34,20 +34,27 @@ class User extends Authenticatable
     }
 
     /**
-     * May this user see money at all - any AED figure on an operational screen?
+     * May this user see the order value - units x unit cost - on an operational screen?
      *
-     * §O gives three money lenses (margin, buy price, sell price) and says Warehouse
-     * gets none of them. The operational screens show one kind of money that fits none
-     * of the three neatly: the marketplace value of units, which is what shortfall and
-     * invoice totals are made of. Rather than guess which lens that is, any of the three
-     * unlocks it, which lands exactly where §O does - Warehouse sees units only.
+     * Yes, for everyone, Warehouse included. Order value is what the marketplace pays us
+     * for the units on a line: it is the size of the order, not what we make on it. A
+     * warehouse team member reading a shortfall needs to know whether the units missing
+     * off a truck are worth 400 or 40,000, because that is what decides whether it is
+     * worth chasing. Hiding it made the operational screens harder to act on without
+     * protecting anything, since unit cost here is the marketplace's own price and is
+     * already printed on every packing list they handle.
      *
-     * This is NOT the margin/P&L gate. Those screens are Admin-only and behind the PIN
-     * as well (§S), and arrive at M7.
+     * This is NOT the margin gate, and deliberately so. What we PAY for a product, and
+     * therefore the profit on it, is a different number from a different file (the master
+     * sheet, §S) and stays Admin-only behind the PIN. The split is: how big is the order
+     * - everyone; what do we make on it - Admin only.
+     *
+     * Kept as a method rather than deleting the checks, so that if this policy is ever
+     * narrowed again it is one line here and no screen changes.
      */
-    public function canSeeMoney(): bool
+    public function canSeeOrderValue(): bool
     {
-        return $this->canAny(['view-margin', 'view-sku-cost', 'view-sku-price']);
+        return true;
     }
 
     /**

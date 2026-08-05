@@ -47,15 +47,15 @@ class PendingController extends Controller
 
     private function export(Request $request, FilterSet $filters, $query): StreamedResponse
     {
-        $money = $request->user()->canSeeMoney();
+        $showValue = $request->user()->canSeeOrderValue();
 
         $headers = ['PO', 'ASIN/NIN', 'Title', 'FC', 'Net accepted', 'Booked', 'Not booked', 'Expected date'];
 
-        if ($money) {
+        if ($showValue) {
             $headers[] = 'Value not booked (AED)';
         }
 
-        $rows = function () use ($query, $money) {
+        $rows = function () use ($query, $showValue) {
             foreach ($query->orderByDesc('qty_not_booked')->cursor() as $line) {
                 $row = [
                     $line->po_number, $line->sku_id, $line->title, $line->ship_to_fc,
@@ -63,7 +63,7 @@ class PendingController extends Controller
                     $line->expected_date?->toDateString(),
                 ];
 
-                if ($money) {
+                if ($showValue) {
                     $row[] = round($line->qty_not_booked * (float) $line->unit_cost, 2);
                 }
 

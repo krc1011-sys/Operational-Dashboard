@@ -108,18 +108,18 @@ class ShipmentsController extends Controller
 
     private function export(Request $request, FilterSet $filters, $query, ?string $stage): StreamedResponse
     {
-        $money = $request->user()->canSeeMoney();
+        $showValue = $request->user()->canSeeOrderValue();
 
         $headers = ['ASN', 'Reference', 'FC', 'Planned date', 'Delivered on', 'Interim units',
             'Final units', 'Shortfall units', 'Stage'];
 
-        if ($money) {
+        if ($showValue) {
             $headers[] = 'Interim AED';
             $headers[] = 'Final AED';
             $headers[] = 'Shortfall AED';
         }
 
-        $rows = function () use ($query, $money) {
+        $rows = function () use ($query, $showValue) {
             foreach ($query->orderBy('id')->cursor() as $delivery) {
                 $row = [
                     $delivery->asn, $delivery->internal_ref, $delivery->fc_code,
@@ -129,7 +129,7 @@ class ShipmentsController extends Controller
                     $delivery->has_final ? 'Shipped' : ($delivery->has_interim ? 'Awaiting final' : '—'),
                 ];
 
-                if ($money) {
+                if ($showValue) {
                     $row[] = round((float) $delivery->value_interim, 2);
                     $row[] = round((float) $delivery->value_final, 2);
                     $row[] = round((float) $delivery->shortfall_value, 2);

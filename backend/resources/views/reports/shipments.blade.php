@@ -1,4 +1,4 @@
-@php($money = auth()->user()->canSeeMoney())
+@php($showValue = auth()->user()->canSeeOrderValue())
 
 <x-app-layout>
     <x-slot name="header">
@@ -55,7 +55,7 @@
                             <th class="py-2 pe-4 text-right">Booked</th>
                             <th class="py-2 pe-4 text-right">Shipped</th>
                             <th class="py-2 pe-4 text-right">Short</th>
-                            @if($money)<th class="py-2 pe-4 text-right">Short AED</th>@endif
+                            @if($showValue)<th class="py-2 pe-4 text-right">Short AED</th>@endif
                             <th class="py-2">Stage</th>
                         </tr>
                     </thead>
@@ -91,7 +91,7 @@
                                 <td class="py-2 pe-4 text-right {{ $delivery->shortfall_units > 0 ? 'text-amber-800 font-semibold' : '' }}">
                                     {{ number_format($delivery->shortfall_units) }}
                                 </td>
-                                @if($money)
+                                @if($showValue)
                                     <td class="py-2 pe-4 text-right">{{ number_format((float) $delivery->shortfall_value, 2) }}</td>
                                 @endif
                                 <td class="py-2">

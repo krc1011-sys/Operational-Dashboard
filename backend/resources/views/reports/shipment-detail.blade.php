@@ -1,4 +1,4 @@
-@php($money = auth()->user()->canSeeMoney())
+@php($showValue = auth()->user()->canSeeOrderValue())
 
 <x-app-layout>
     <x-slot name="header">
@@ -43,7 +43,7 @@
                     @endforeach
                 </div>
 
-                @if($money && ($delivery->value_final > 0 || $delivery->value_interim > 0))
+                @if($showValue && ($delivery->value_final > 0 || $delivery->value_interim > 0))
                     <p class="text-sm text-gray-600 mt-4">
                         Booked value {{ number_format((float) $delivery->value_interim, 2) }} AED ·
                         invoiced {{ number_format((float) $delivery->value_final, 2) }} AED ·
@@ -98,7 +98,7 @@
                             <th class="py-2 pe-4 text-right">Booked</th>
                             <th class="py-2 pe-4 text-right">Shipped</th>
                             <th class="py-2 pe-4 text-right">Short</th>
-                            @if($money)<th class="py-2 text-right">Short AED</th>@endif
+                            @if($showValue)<th class="py-2 text-right">Short AED</th>@endif
                         </tr>
                     </thead>
                     <tbody class="divide-y">
@@ -118,7 +118,7 @@
                                 <td class="py-2 pe-4 text-right {{ $short > 0 && $delivery->has_final ? 'text-amber-800 font-semibold' : '' }}">
                                     {{ $delivery->has_final ? number_format($short) : '—' }}
                                 </td>
-                                @if($money)
+                                @if($showValue)
                                     <td class="py-2 text-right">
                                         {{ $delivery->has_final ? number_format($short * (float) $row->unit_cost, 2) : '—' }}
                                     </td>

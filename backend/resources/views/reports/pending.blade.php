@@ -1,4 +1,4 @@
-@php($money = auth()->user()->canSeeMoney())
+@php($showValue = auth()->user()->canSeeOrderValue())
 
 <x-app-layout>
     <x-slot name="header">
@@ -42,7 +42,7 @@
                             <th class="py-2 pe-4 text-right">Net accepted</th>
                             <th class="py-2 pe-4 text-right">Booked</th>
                             <th class="py-2 pe-4 text-right">Not booked</th>
-                            @if($money)<th class="py-2 text-right">Value (AED)</th>@endif
+                            @if($showValue)<th class="py-2 text-right">Value (AED)</th>@endif
                         </tr>
                     </thead>
                     <tbody class="divide-y">
@@ -61,7 +61,7 @@
                                 <td class="py-2 pe-4 text-right">{{ number_format($line->qty_net_accepted) }}</td>
                                 <td class="py-2 pe-4 text-right">{{ number_format($line->qty_booked) }}</td>
                                 <td class="py-2 pe-4 text-right font-semibold">{{ number_format($line->qty_not_booked) }}</td>
-                                @if($money)
+                                @if($showValue)
                                     <td class="py-2 text-right">
                                         {{ number_format($line->qty_not_booked * (float) $line->unit_cost, 2) }}
                                     </td>

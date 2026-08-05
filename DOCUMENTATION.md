@@ -552,15 +552,19 @@ cancellations template avoids on the way in.
 
 ### 9.3 Money on operational screens
 
-§O gives three money lenses (margin, buy price, sell price) and says Warehouse gets none.
-The operational screens show a kind of money that fits none of the three neatly: the
-marketplace value of units, which is what shortfall and invoice totals are made of.
-Rather than guess which lens that is, **any of the three unlocks it** — which lands
-exactly where §O does: Warehouse sees units and no AED, everyone else sees both. Enforced
-in the screens *and* in the exports.
+**Order value is open to every role, Warehouse included** (revised after M5 — see §14).
+Order value is units × unit cost: the size of the order, not what we make on it. The unit
+cost on a PO line is the *marketplace's own price* — what Amazon pays us — and it is
+already printed on the packing lists the warehouse handles daily.
 
-This is not the margin gate. Profitability stays out of M5 entirely: Admin-only, behind
-the PIN, at M7.
+This is not the margin gate, and the two are deliberately different numbers from different
+files. What we **pay** a supplier, and therefore the profit on anything, comes from the
+master sheet (§S) and stays **Admin-only behind the PIN**. The split is: *how big is the
+order* — everyone; *what do we make on it* — Admin only.
+
+One method carries the rule, `User::canSeeOrderValue()`, and the screens and exports both
+ask it. It returns `true` for everyone; the checks stay in place so that narrowing this
+again is one line and no screen changes.
 
 ### 9.4 Correcting a delivery date
 
@@ -671,11 +675,11 @@ specified in the blueprint and should be confirmed.
 
 **Added at M5:**
 
-20. **⚠ assumption — any one money permission unlocks AED on operational screens.** §O
-    names three money lenses and gives Warehouse none of them; the marketplace value of
-    units fits none of the three neatly. Any of the three showing it lands exactly where
-    §O does. If AED on Fulfilment/Shipments should instead follow one specific lens, it
-    is one method on the User model (`canSeeMoney()`).
+20. ~~**⚠ assumption — any one money permission unlocks AED on operational screens.**~~
+    **Superseded after M5 (§14.1): order value is open to every role, Warehouse included.**
+    The assumption was that the marketplace value of units belonged to one of §O's three
+    money lenses. It belongs to none of them — it is the size of the order, not the profit
+    on it — so it is no longer gated at all.
 21. **The filter bar POSTs and redirects to a GET link.** A pasted list of thousands of
     ASINs, or an uploaded file, cannot live in a query string — so the list is stashed in
     the session and only a key travels. Every screen stays bookmarkable, pageable and
@@ -764,3 +768,30 @@ repeated here because they are the source of most potential bugs:
   and can complete a PO. An interim never does.
 - Packing-list cells are formulas; the reader takes the **cached calculated value**.
   Users are never asked to flatten or paste-values.
+
+---
+
+## 14. Changes after M5
+
+### 14.1 Order value is open to every role
+
+Warehouse now sees order value — units × unit cost — on every operational screen and in
+every export, alongside Finance, Sales and Procurement.
+
+The reasoning is that **order value and margin are two different numbers from two
+different files**, and only one of them is sensitive:
+
+| | Where it comes from | Who sees it |
+|---|---|---|
+| **Order value** = units × unit cost | The PO file's own `Cost` column — the *marketplace's* price, what Amazon pays us (§C) | **Everyone** |
+| **Margin / profit / what we paid** | The master sheet's cost columns (§S) | **Admin only, behind the PIN** |
+
+A warehouse team member looking at a shortfall needs to know whether the units missing off
+a truck are worth 400 or 40,000 — that is what decides whether it is worth chasing. The old
+rule hid that without protecting anything, since the unit cost involved is the marketplace's
+own price and is already printed on the packing lists they handle every day.
+
+Nothing about profitability moved. Cost, profit and margin remain Admin-only and PIN-gated.
+
+`User::canSeeOrderValue()` is the single place the rule lives. It returns `true`; the
+`@if` checks stay in the screens and exports so narrowing it again is a one-line change.

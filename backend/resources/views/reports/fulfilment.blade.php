@@ -1,7 +1,7 @@
 @php
     use App\Services\Reporting\FilterSet;
 
-    $money = auth()->user()->canSeeMoney();
+    $showValue = auth()->user()->canSeeOrderValue();
 @endphp
 
 <x-app-layout>
@@ -36,7 +36,7 @@
                             <div class="text-xs text-gray-500">Shortfall</div>
                             <div class="text-xl font-semibold text-amber-800">
                                 {{ number_format($totals['shortfall_units']) }} units
-                                @if($money)
+                                @if($showValue)
                                     <span class="text-sm font-normal text-gray-600">
                                         ({{ number_format($totals['shortfall_value'], 2) }} AED)
                                     </span>
@@ -66,7 +66,7 @@
                                 <th class="py-2 pe-4 text-right">Shipped</th>
                                 <th class="py-2 pe-4 text-right">Fill %</th>
                                 <th class="py-2 pe-4 text-right">Short</th>
-                                @if($money)<th class="py-2 text-right">Short AED</th>@endif
+                                @if($showValue)<th class="py-2 text-right">Short AED</th>@endif
                             </tr>
                         </thead>
                         <tbody class="divide-y">
@@ -86,7 +86,7 @@
                                     <td class="py-2 pe-4 text-right {{ $row['shortfall_units'] > 0 ? 'text-amber-800 font-semibold' : '' }}">
                                         {{ number_format($row['shortfall_units']) }}
                                     </td>
-                                    @if($money)
+                                    @if($showValue)
                                         <td class="py-2 text-right">{{ number_format($row['shortfall_value'], 2) }}</td>
                                     @endif
                                 </tr>
@@ -111,7 +111,7 @@
                                 <th class="py-2 pe-4 text-right">Shipped</th>
                                 <th class="py-2 pe-4 text-right">Fill %</th>
                                 <th class="py-2 pe-4 text-right">Short</th>
-                                @if($money)<th class="py-2 text-right">Short AED</th>@endif
+                                @if($showValue)<th class="py-2 text-right">Short AED</th>@endif
                             </tr>
                         </thead>
                         <tbody class="divide-y">
@@ -143,7 +143,7 @@
                                     <td class="py-2 pe-4 text-right {{ $short > 0 ? 'text-amber-800 font-semibold' : '' }}">
                                         {{ number_format($short) }}
                                     </td>
-                                    @if($money)
+                                    @if($showValue)
                                         <td class="py-2 text-right">
                                             {{ number_format($short * (float) $line->unit_cost, 2) }}
                                         </td>

@@ -1,7 +1,7 @@
 @php
     use App\Services\Reporting\FilterSet;
 
-    $money = auth()->user()->canSeeMoney();
+    $showValue = auth()->user()->canSeeOrderValue();
     $days = $order->turnaroundDays();
     $late = $order->isBreachingBenchmark();
 @endphp
@@ -173,7 +173,7 @@
                     </tbody>
                 </table>
 
-                @if($money)
+                @if($showValue)
                     <p class="text-xs text-gray-500 mt-4">
                         Marketplace value of what has shipped:
                         <strong>{{ number_format($lines->sum(fn ($l) => $l->qty_shipped * (float) $l->unit_cost), 2) }} AED</strong>.

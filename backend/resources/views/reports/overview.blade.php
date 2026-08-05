@@ -1,7 +1,7 @@
 @php
     use App\Services\Reporting\FulfilmentQuery;
 
-    $money = auth()->user()->canSeeMoney();
+    $showValue = auth()->user()->canSeeOrderValue();
     $fillStatus = FulfilmentQuery::rate($totals['fill_rate'], $benchmarks['fill_rate_target']);
     $confirmStatus = FulfilmentQuery::rate($totals['confirmation_rate'], $benchmarks['confirmation_rate_target']);
     $turnaroundStatus = $averageDays === null
@@ -69,7 +69,7 @@
                     <x-kpi-tile
                         label="Shortfall"
                         :value="number_format($totals['shortfall_units']) . ' units'"
-                        :sub="$money ? number_format($totals['shortfall_value'], 2) . ' AED' : 'Accepted but not shipped'"
+                        :sub="$showValue ? number_format($totals['shortfall_value'], 2) . ' AED' : 'Accepted but not shipped'"
                         :status="$totals['shortfall_units'] > 0 ? 'warn' : 'good'"
                         :href="route('fulfilment.index', $filters->query())" />
 
@@ -110,7 +110,7 @@
                         </div>
                     @endforeach
 
-                    @if($money)
+                    @if($showValue)
                         <div class="border rounded p-3">
                             <div class="text-xs text-gray-500">Shipped value</div>
                             <div class="font-semibold">{{ number_format($totals['shipped_value'], 2) }} AED</div>

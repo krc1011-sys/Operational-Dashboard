@@ -127,7 +127,9 @@ class RolesAndPermissionsSeeder extends Seeder
         'Warehouse' => [
             'view-overview', 'view-po-status', 'view-fulfillment', 'manage-fulfillment',
             'view-pending', 'view-shipments', 'view-cancelled-items', 'view-master',
-            // No money visibility at all (§O).
+            // None of the three §O money lenses: no buy price, no sell price, no margin.
+            // Order value (units x unit cost) is not one of those lenses and is open to
+            // every role - see User::canSeeOrderValue().
             'manage-delivery-batches',
             // Uploads (revoked at launch by the override below).
             'upload-packing-list', 'upload-noon-picking-list',

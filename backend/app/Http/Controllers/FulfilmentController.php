@@ -53,22 +53,22 @@ class FulfilmentController extends Controller
 
     private function export(Request $request, FilterSet $filters, FulfilmentQuery $engine): StreamedResponse
     {
-        $money = $request->user()->canSeeMoney();
+        $showValue = $request->user()->canSeeOrderValue();
         $notes = ['OperON — Fulfilment', ...($filters->summary() ?: ['no filters applied'])];
 
         if ($filters->groupBy !== FilterSet::GROUP_NONE) {
             $headers = [ucfirst($filters->groupBy), 'SKUs', 'Accepted', 'Net accepted', 'Booked',
                 'Shipped', 'Fill rate %', 'Shortfall units'];
 
-            if ($money) {
+            if ($showValue) {
                 $headers[] = 'Shortfall AED';
             }
 
-            $rows = $engine->grouped($filters->groupBy)->map(function (array $row) use ($money) {
+            $rows = $engine->grouped($filters->groupBy)->map(function (array $row) use ($showValue) {
                 $out = [$row['key'], $row['sku_count'], $row['accepted'], $row['net_accepted'],
                     $row['booked'], $row['shipped'], $row['fill_rate'], $row['shortfall_units']];
 
-                if ($money) {
+                if ($showValue) {
                     $out[] = round($row['shortfall_value'], 2);
                 }
 
@@ -81,12 +81,12 @@ class FulfilmentController extends Controller
         $headers = ['PO', 'ASIN/NIN', 'Title', 'FC', 'Status', 'Accepted', 'Cancelled',
             'Net accepted', 'Booked', 'Shipped', 'Not booked', 'Fill rate %', 'Shortfall units'];
 
-        if ($money) {
+        if ($showValue) {
             $headers[] = 'Unit cost';
             $headers[] = 'Shortfall AED';
         }
 
-        $rows = function () use ($engine, $money) {
+        $rows = function () use ($engine, $showValue) {
             foreach ($engine->lines()->orderBy('po_number')->orderBy('sku_id')->cursor() as $line) {
                 $short = max(0, $line->qty_net_accepted - $line->qty_shipped);
 
@@ -98,7 +98,7 @@ class FulfilmentController extends Controller
                     $line->fill_rate_pct, $short,
                 ];
 
-                if ($money) {
+                if ($showValue) {
                     $row[] = (float) $line->unit_cost;
                     $row[] = round($short * (float) $line->unit_cost, 2);
                 }

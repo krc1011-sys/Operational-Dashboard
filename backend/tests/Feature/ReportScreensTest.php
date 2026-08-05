@@ -132,19 +132,22 @@ class ReportScreensTest extends TestCase
         $this->actingAs($this->user('Warehouse'))->get(route('shipments.index'))->assertOk();
     }
 
-    /** §O: Warehouse has no money visibility at all, so it sees units and no AED. */
-    public function test_warehouse_sees_units_but_never_money(): void
+    /**
+     * Order value is open to every role, Warehouse included: it is the size of the order,
+     * not what we make on it. Margin stays Admin-only behind the PIN (§S) and is tested
+     * separately - see NetMarginTest.
+     */
+    public function test_every_role_sees_order_value_including_warehouse(): void
     {
-        $this->actingAs($this->user('Finance'))
-            ->get(route('fulfilment.index'))
-            ->assertOk()
-            ->assertSee('Short AED');
-
-        $this->actingAs($this->user('Warehouse'))
-            ->get(route('fulfilment.index'))
-            ->assertOk()
-            ->assertDontSee('Short AED')
-            ->assertSee('Fill rate');
+        // Sales is left out on purpose: §O gives it no Fulfilment screen at all, which is
+        // a screen-access rule, not a money one.
+        foreach (['Finance', 'Procurement', 'Warehouse'] as $role) {
+            $this->actingAs($this->user($role))
+                ->get(route('fulfilment.index'))
+                ->assertOk()
+                ->assertSee('Short')
+                ->assertSee('Fill rate');
+        }
     }
 
     // --- Overview -------------------------------------------------------------
@@ -302,16 +305,16 @@ class ReportScreensTest extends TestCase
         $this->assertStringNotContainsString('B08TESTAAA', $csv);
     }
 
-    public function test_the_export_leaves_money_out_for_roles_that_may_not_see_it(): void
+    /** The export carries order value for every role too - the screen and the CSV agree. */
+    public function test_the_export_carries_order_value_for_every_role(): void
     {
-        $finance = $this->actingAs($this->user('Finance'))
-            ->get(route('fulfilment.index', ['export' => 'csv']))->streamedContent();
+        foreach (['Finance', 'Warehouse'] as $role) {
+            $csv = $this->actingAs($this->user($role))
+                ->get(route('fulfilment.index', ['export' => 'csv']))->streamedContent();
 
-        $warehouse = $this->actingAs($this->user('Warehouse'))
-            ->get(route('fulfilment.index', ['export' => 'csv']))->streamedContent();
-
-        $this->assertStringContainsString('Shortfall AED', $finance);
-        $this->assertStringNotContainsString('Shortfall AED', $warehouse);
+            $this->assertStringContainsString('Shortfall AED', $csv, "$role should see order value");
+            $this->assertStringContainsString('Unit cost', $csv, "$role should see unit cost");
+        }
     }
 
     // --- Pending --------------------------------------------------------------
