@@ -35,6 +35,17 @@ class FileTypeDefinition
          * picks whichever row matches the most expected headers.
          */
         public readonly int $headerSearchDepth = 12,
+        /**
+         * May this file legitimately carry a header and NO data rows?
+         *
+         * False for almost everything: an empty Amazon packing list means somebody
+         * uploaded the wrong thing, and rejecting it is a kindness. It is true for
+         * Noon's picking lists, where an empty tab is not an empty file but a
+         * MEANINGFUL one - Noon annotates only exceptions, so "no rows" says "every
+         * line went out in full" (§Q). Rejecting that would refuse the happiest file
+         * the system ever receives.
+         */
+        public readonly bool $allowsNoDataRows = false,
     ) {}
 
     /** Every header we know about, for scoring a candidate header row. */

@@ -52,6 +52,10 @@ class UploadController extends Controller
             // and no order date either, which turnaround needs (§L).
             'po_number' => ['nullable', 'string', 'max:64'],
             'order_date' => ['nullable', 'date'],
+            // Noon's picking lists carry no real delivery date - only Noon's own
+            // estimate - and turnaround is measured against the day it actually went
+            // out (§Q, §L).
+            'delivery_date' => ['nullable', 'date'],
         ], [
             'upload_type.in' => 'You do not have permission to upload that file type.',
         ]);
@@ -68,6 +72,7 @@ class UploadController extends Controller
             [
                 'po_number' => $validated['po_number'] ?? null,
                 'order_date' => $validated['order_date'] ?? null,
+                'delivery_date' => $validated['delivery_date'] ?? null,
             ],
         );
 

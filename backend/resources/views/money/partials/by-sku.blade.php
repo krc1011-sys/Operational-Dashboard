@@ -12,14 +12,16 @@
            :context="'on '.\Illuminate\Support\Str::lower(SkuMargin::selectors()[$selector])" />
 
     <x-kpi label="Profitable" :value="number_format($summary['profitable'])" tone="good"
-           :context="$summary['skus'] > 0 ? round($summary['profitable'] / $summary['skus'] * 100, 1).'% of those in view' : null" />
+           :context="$summary['rankable'] > 0 ? round($summary['profitable'] / $summary['rankable'] * 100, 1).'% of the SKUs that can be ranked' : null" />
 
     <x-kpi label="Losing money" :value="number_format($summary['losing'])"
            :tone="$summary['losing'] > 0 ? 'bad' : 'good'"
            context="margin at or below zero" />
 
     <x-kpi label="No verdict" :value="number_format($summary['unknown'])" tone="n"
-           context="no selling price — things we buy and never sell" />
+           :context="$summary['bundle_components'] > 0
+               ? 'no selling price · plus '.number_format($summary['bundle_components']).' bundle component(s) held out of the ranking'
+               : 'no selling price — things we buy and never sell'" />
 
     <x-kpi label="Blended margin"
            :value="$summary['margin_pct'] === null ? '—' : $summary['margin_pct']" unit="%"
@@ -68,8 +70,9 @@
             {{ number_format($summary['skus']) }} SKUs</b> have nothing shipped on the channels in view, so
             their blend weights one unit of each channel rather than real volume. Both are revenue
             weightings; the second is the honest one to use when there is no recorded revenue to weight by.
-            Every row says which it used. <b>Noon volumes arrive at M8 and DFS at M9</b> — until then only
-            the Amazon Retail side of a blend can carry shipped units.
+            Every row says which it used. <b>Amazon Retail and Noon Retail both carry real shipped
+            units now</b> (M8), so a blend across those two is weighted on money we actually banked.
+            <b>DFS has no PO and no shipped units until M9</b>, so it never carries weight yet.
         </div>
     @endif
 @endif
@@ -147,7 +150,7 @@
                             {{ $blend['cogs'] === null ? '—' : Currency::plain($blend['cogs'], $row['currency']) }}
                         </td>
                         <td class="num">
-                            @if ($blend['profit'] === null)
+                            @if ($row['bundle_component'] || $blend['profit'] === null)
                                 <span style="color:var(--faint)">—</span>
                             @else
                                 <span class="mg {{ $blend['profit'] >= 0 ? 'pos' : 'neg' }}">
@@ -156,14 +159,19 @@
                             @endif
                         </td>
                         <td class="num">
-                            @if ($blend['margin_pct'] === null)
+                            @if ($row['bundle_component'])
+                                {{-- A price that was never charged makes a percentage, not an answer. --}}
+                                <span class="mg unk" title="Never sold on its own, so its margin would be computed against a price we never charged">{{ \App\Models\Product::BUNDLE_MARGIN_LABEL }}</span>
+                            @elseif ($blend['margin_pct'] === null)
                                 <span class="mg unk">—</span>
                             @else
                                 <span class="mg {{ $blend['margin_pct'] >= 0 ? 'pos' : 'neg' }}">{{ $blend['margin_pct'] }}%</span>
                             @endif
                         </td>
                         <td>
-                            @if ($row['profitable'] === null)
+                            @if ($row['bundle_component'])
+                                <span class="tag" title="Its cost is real and still shown; only the margin is withheld">bundle component</span>
+                            @elseif ($row['profitable'] === null)
                                 <span class="tag" title="No selling price on these channels, so there is no margin to judge">no verdict</span>
                             @elseif ($row['profitable'])
                                 <span class="tag good">profitable</span>

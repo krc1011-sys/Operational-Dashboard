@@ -55,6 +55,33 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Bundle components  (M8)
+    |--------------------------------------------------------------------------
+    |
+    | Products that are never sold on their own: they go into a bundle, and the bundle is
+    | what carries a price. Their channel row has a real COST against a selling price that
+    | was never charged, so the engine computes a margin that is arithmetic over a fiction
+    | - BD07903074 topped the losing-SKU list at -33.31%, a phantom loss for a product that
+    | has never been sold at a loss because it has never been sold at all.
+    |
+    | Flagged products KEEP every cost and purchase figure everywhere. What the flag does
+    | is hold them out of margin RANKINGS and loss watchlists, where a meaningless
+    | percentage crowds out the real ones.
+    |
+    | This list is a STARTING POINT, applied when a product is first created by a master
+    | import. The master grid's own toggle is the last word - a flag set or cleared by hand
+    | is never overwritten by a later upload.
+    |
+    | Rolling a component's cost up into the bundle it belongs to is the real fix and is
+    | Phase 2/3 work: it needs a bundle-to-component mapping the catalog does not carry.
+    |
+    */
+    'bundle_components' => [
+        'BD07903074',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Business benchmarks  (blueprint §L, §M)
     |--------------------------------------------------------------------------
     */

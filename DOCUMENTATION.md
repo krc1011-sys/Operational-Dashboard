@@ -81,7 +81,7 @@ Run the tests with `php artisan test`.
 | **M5** | Core screens with self-serve filters, group-by and export | ✅ Done |
 | **M6** | Master grid (Admin + PIN) + net-margin engine — **verified on the real master file** | ✅ Done |
 | **M7** | Money views — PO & SKU P&L, Admin + PIN — **checkpoint, verified on the real PO** | ✅ Done |
-| M8 | Noon channel | ⬜ |
+| **M8** | Noon Retail ingest + bundle-component flag — **checkpoint, verified on the real PO** | ✅ Done |
 | M9 | DFS + sell-out feeds | ⬜ |
 | M10 | Users, server-side enforcement, final verification | ⬜ |
 
@@ -1142,6 +1142,108 @@ The SKU table draws the **200 worst margins**. Every matching SKU is still coste
 the only way to know which those are — so the KPIs cover all of them and the screen says
 what it cut, with a link to the CSV that carries the lot. A cap nobody is told about reads
 as "this is all of them", which is the one thing a profitability screen must never imply.
+
+---
+
+---
+
+## 12d. M8 — Noon Retail channel (done, verified on the real PO)
+
+**CHECKPOINT.** 276 tests passing, 1,177 assertions — 243 from M7 all still green, plus 33
+new. Full write-up in `M8_SUMMARY.md`.
+
+### 12d.1 The rule everything rests on
+
+**Noon annotates only the exceptions.** A line missing from the picking list was
+**delivered in full** — the reverse of Amazon, where a packing list is a positive record
+and absence means nothing shipped.
+
+| Read it… | Delivered | Fill rate |
+|---|---|---|
+| the Amazon way — only what the file lists | 5,812 | 90.37% |
+| **correctly** — plus the six lines it never mentions | **6,402** | **99.55%** |
+
+`operon:verify-samples` asserts the right answer **and prints the wrong one it would have
+been**, so the mistake cannot be reintroduced quietly.
+
+### 12d.2 Verified on PO 287285145169960
+
+72 ordered lines · 6,431 units · **AED 107,694.05** · one short line (drain cleaner,
+barcode 716841215014, 221 → 192, short 29) · 6,402 delivered · **99.55%** · 66 lines stated
+on the file, 6 delivered in full by omission. All checks green.
+
+### 12d.3 The four tabs
+
+Every Noon workbook carries the same four tabs whichever stage it is, so the TAB is what
+distinguishes the upload types — never the filename (§T).
+
+| Tab | What it is |
+|---|---|
+| *(named for the PO number)* | the PO header — found as the tab that is not one of the other three |
+| **Packing List** | **the ORDER** (Noon's naming is the reverse of Amazon's) |
+| **Picking List** | **the DELIVERY** |
+| Short Titles | barcode → title reference; ignored |
+
+Nothing is read by position, and the file proves why: the interim picking tab is 7 columns
+with `Barcodes` in column 3; the final is 9, with an **unlabelled** consignment-reference
+column pushing `Barcodes` to 4 and adding `OG qty`. The M3 header-name parser handles both
+unchanged.
+
+**The tabs join on barcode and spell it differently** — `642135123720` against
+`0642135123720`. `App\Support\Barcode` normalises for comparison and keeps Noon's spelling
+for display. Joining raw strings would match nothing, and an unmatched picking row looks
+exactly like a line that was never delivered.
+
+**The order is read from the workbook's own packing tab, not the database**, so a picking
+list uploaded before its PO still produces the right figures.
+
+### 12d.4 Four things the real file taught us
+
+1. **`Final Cost` is a rounded display value** — the VAT-inclusive rate to the fils, 2.89
+   where the true rate is 2.8875. Multiplying it back up put the PO 6.57 out, so the unit
+   cost is derived from the line's own `Total Amount` instead.
+2. **An empty picking list is valid and good**: "no exceptions" means everything went in
+   full. The validator rejected it as "a header with no data rows"; Noon's picking types
+   now declare `allowsNoDataRows`.
+3. **A Noon PO can go straight to a final with no interim**, which made every delivered
+   Noon line report its full quantity as *not booked*. Shipped units are now booked by
+   definition — `PoLine::computeNotBooked()`.
+4. **A delivery with no invoice banner was worth zero.** `$delivery->value_final ?: sum()`
+   never fired, because the decimal-cast column reads as the string `"0.00"`, which is
+   truthy. Fixed for both channels.
+
+### 12d.5 Downstream (§E)
+
+No Noon special cases were needed: it writes the same PO lines, shipment lines and
+deliveries every other channel does. Channel mix, fill rate, shortfall, turnaround, PO
+Lookup, Fulfilment, Deliveries and the M7 Profitability views all include it.
+
+- Noon P&L: billed 106,842.96 → net 82,328.96 − cost 60,548.54 = **21,780.42, margin
+  26.46%** against Amazon's 18.13% on the same catalog, because Noon's front margin is 0.98
+  against 0.9019.
+- **Confirmation rate reads "n/a" for Noon**, not 100%: there is no accept step, so a
+  percentage would advertise a negotiation that never happened.
+- **71 of 72 lines link to the master catalog by NIN**, the sheet's own
+  "Customer Product Code (Noon)".
+- **12 products now carry shipped units on more than one channel**, so M7's revenue-weighted
+  blend finally runs on real money: `BD07114444` blends Amazon 13.30% (114 units) with Noon
+  17.45% (367 units) to **16.53%**, where a simple mean would say 15.38%.
+
+### 12d.6 Bundle components — the phantom loss
+
+`BD07903074` topped the losing-SKU list at −33.31%: a product never sold on its own, so its
+margin was computed against a price nobody ever paid.
+
+**A flag, not a deletion, and it changes no figure.** Flagged products keep every cost and
+purchase number everywhere; they are held out of margin RANKINGS and loss watchlists, and
+their margin reads "N/A — bundle component". Losing SKUs went from 21 to 20 — the real
+losses stayed, the phantom went.
+
+- A toggle in the master grid (`manage-master` + PIN, like every other master edit).
+- Seeded from `config('operon.bundle_components')` when a product is FIRST created by a
+  master import, so a later upload never overwrites a hand-set flag.
+- Rolling a component's cost into its parent bundle is Phase 2/3: it needs a
+  bundle-to-component mapping the catalog does not carry.
 
 ---
 

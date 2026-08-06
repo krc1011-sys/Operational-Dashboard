@@ -218,44 +218,73 @@ class FileTypeRegistry
                     .'stock. No PO and no fill rate - a revenue feed by ASIN. Outbound only.',
             ),
 
-            // --- Noon (§Q) ---------------------------------------------------
+            // --- Noon (§Q, M8) -----------------------------------------------
+            //
+            // CONFIRMED AGAINST THE REAL FILE (PO 287285145169960). Every Noon workbook
+            // carries the SAME four tabs whichever stage it is - Short Titles, a tab
+            // NAMED FOR THE PO, Packing List and Picking List - so the tab a definition
+            // reads is what distinguishes the types, not the filename (§T).
+            //
+            // NOON'S NAMING IS THE REVERSE OF AMAZON'S: "Packing List" is the ORDER and
+            // "Picking List" is the DELIVERY.
             new FileTypeDefinition(
                 type: UploadType::NoonPo,
                 extensions: ['xlsx', 'xls'],
                 sheetCandidates: ['Packing List'],
                 headerRowHint: 1,
                 requiredHeaders: [
-                    'NIN' => ['nin', 'zsku', 'sku id'],
+                    'NINs' => ['nins', 'nin', 'zsku', 'sku id'],
                     'UOM Qty' => ['uom qty', 'uom quantity'],
                 ],
                 optionalHeaders: [
                     'GTIN' => ['gtin', 'barcode'],
-                    'Seller SKU' => ['seller sku', 'sku'],
-                    'Title' => ['title', 'description', 'item description'],
-                    'Unit Cost' => ['unit cost', 'cost', 'price'],
+                    'Seller Sku' => ['seller sku', 'sku'],
+                    'Product Title' => ['product title', 'title', 'description'],
+                    'Model Number' => ['model number'],
+                    'Category' => ['category'],
+                    'Brand' => ['brand'],
+                    'Size' => ['size'],
+                    'COO' => ['coo', 'country of origin'],
+                    'Unit Rate' => ['unit rate', 'unit cost', 'cost'],
+                    'Vat' => ['vat'],
+                    'Final Cost' => ['final cost'],
+                    'Total Amount' => ['total amount', 'line value'],
                 ],
-                notes: 'Noon joins on NIN/ZSKU, not ASIN. Ordered quantity is "UOM Qty" from '
-                    .'the Packing List tab; the PO number and Ship-To come from the '
-                    .'PO-number-named metadata tab. "OG qty" is an internal reference and '
-                    .'is ignored. Noon has no accept step, so no confirmation rate.',
+                notes: 'On Noon the PACKING LIST is the order. Ordered quantity is "UOM Qty"; '
+                    .'the PO number, ship-to, currency and dates come from the tab named for '
+                    .'the PO itself. Joins to the catalog on NIN, which is the master sheet\'s '
+                    .'"Customer Product Code (Noon)". Noon has no accept step, so there is no '
+                    .'confirmation rate and accepted always equals ordered.',
             ),
 
+            // Interim and final share one shape, and the two layouts genuinely differ:
+            // the interim is 7 columns with Barcodes in column 3, the final is 10 with
+            // Barcodes in column 4, an unlabelled consignment reference in column 3 and
+            // an "OG qty" column that is filled in ONLY on a short line. Which is exactly
+            // why every column here is found by name (§K).
             new FileTypeDefinition(
                 type: UploadType::NoonInterimPicking,
                 extensions: ['xlsx', 'xls'],
                 sheetCandidates: ['Picking List'],
                 headerRowHint: 1,
                 requiredHeaders: [
-                    'NIN' => ['nin', 'zsku', 'sku id'],
+                    'Barcodes' => ['barcodes', 'barcode'],
                     'Qty' => ['qty', 'quantity'],
                 ],
                 optionalHeaders: [
-                    'Title' => ['title', 'description'],
-                    'Seller SKU' => ['seller sku', 'sku'],
+                    'NINs' => ['nins', 'nin', 'zsku'],
+                    'Short Title' => ['short title', 'title', 'description'],
+                    'Unit Rate' => ['unit rate', 'unit cost'],
+                    'Match Key' => ['match key'],
+                    'OG qty' => ['og qty', 'original qty', 'og quantity'],
                 ],
-                notes: 'Noon interim. The delivery date is captured at upload (pre-filled with '
-                    .'the metadata tab\'s Estimated Delivery Date, editable), because the '
-                    .'Noon file does not reliably carry the real date.',
+                notes: 'Noon interim. Optional - a Noon PO is one-shot and may go straight to '
+                    .'a final. The delivery date is typed on the upload form, pre-filled with '
+                    .'the metadata tab\'s Estimated Delivery Date, because the file carries no '
+                    .'real one. An EMPTY picking tab is valid and means every line went out '
+                    .'in full.',
+                // Noon annotates only exceptions, so no rows = no exceptions (§Q).
+                allowsNoDataRows: true,
             ),
 
             new FileTypeDefinition(
@@ -264,17 +293,23 @@ class FileTypeRegistry
                 sheetCandidates: ['Picking List'],
                 headerRowHint: 1,
                 requiredHeaders: [
-                    'NIN' => ['nin', 'zsku', 'sku id'],
+                    'Barcodes' => ['barcodes', 'barcode'],
                     'Qty' => ['qty', 'quantity'],
                 ],
                 optionalHeaders: [
+                    'NINs' => ['nins', 'nin', 'zsku'],
+                    'Short Title' => ['short title', 'title', 'description'],
+                    'Unit Rate' => ['unit rate', 'unit cost'],
+                    'Match Key' => ['match key'],
+                    'OG qty' => ['og qty', 'original qty', 'og quantity'],
                     'Invoice Number' => ['invoice number', 'invoice'],
-                    'Title' => ['title', 'description'],
-                    'Seller SKU' => ['seller sku', 'sku'],
                 ],
-                notes: 'Noon final. Fully-undelivered SKUs are deleted from the file, as on '
-                    .'Amazon. Finals are summed per PO+NIN across deliveries, so the ~10% of '
-                    .'POs that split into two ASNs need no special handling.',
+                notes: 'Noon final - what was actually delivered. NOON ANNOTATES ONLY THE '
+                    .'EXCEPTIONS: a line missing from this tab was delivered IN FULL, and only '
+                    .'a short line is listed with its "OG qty". Reading it as a positive record '
+                    .'the way an Amazon packing list is read understates the fill rate badly. '
+                    .'An EMPTY tab is valid and means the whole PO went out in full.',
+                allowsNoDataRows: true,
             ),
 
             // --- Master products sheet (§S) ----------------------------------

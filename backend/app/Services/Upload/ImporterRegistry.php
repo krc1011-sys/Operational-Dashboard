@@ -7,6 +7,8 @@ use App\Services\Import\AmazonCancellationImporter;
 use App\Services\Import\AmazonPackingListImporter;
 use App\Services\Import\AmazonPoImporter;
 use App\Services\Import\MasterSheetImporter;
+use App\Services\Import\NoonPickingListImporter;
+use App\Services\Import\NoonPoImporter;
 
 /**
  * Maps an upload type to the parser that handles it.
@@ -27,7 +29,13 @@ class ImporterRegistry
         // M6 — the master catalog and its unit economics (§S)
         UploadType::MasterSheet->value => MasterSheetImporter::class,
 
-        // M8 — Noon, M9 — DFS and sell-out.
+        // M8 — Noon (§Q). The PO reads the Packing List tab, the picking lists read the
+        // Picking List tab - Noon's naming is the reverse of Amazon's.
+        UploadType::NoonPo->value => NoonPoImporter::class,
+        UploadType::NoonInterimPicking->value => NoonPickingListImporter::class,
+        UploadType::NoonFinalPicking->value => NoonPickingListImporter::class,
+
+        // M9 — DFS and sell-out.
     ];
 
     public function has(UploadType $type): bool

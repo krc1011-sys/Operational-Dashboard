@@ -61,7 +61,7 @@ Re-skin AND restructure:
 - **Fulfilment** — **PO-centric drill**: list of POs → expand to its lines + booking status, with a status toggle on top (All / Not-booked / Booked / Shipped / Cancelled). **Merge "Pending" into this** as the "outstanding" status filter — remove the separate Pending tab.
 - **Deliveries** — **merge "Shipments" + "Committed"** into one screen with a Booked ↔ Shipped toggle; show **FC** and **which POs sit under each ISA/ASN**, with per-SKU shortfall.
 - **Products** — SKU analytics home: sell-in vs sell-out, sell-through, ABC/XYZ, brand/category rollups. The labelled sell-through **quadrant** lives here (hover shows product + numbers).
-- **Margin** — admin-only + PIN; PO- and SKU-level net margin, using the confirmed front+back-margin maths.
+- **Profitability** — admin-only + PIN; PO- and SKU-level net margin, using the confirmed front+back-margin maths. (Named *Margin* in the first draft of this brief; the app and the blueprint's own §Profitability heading both say Profitability, and the brief now matches them.)
 - **Master** — the editable grid; **flagged review items link to the product row** (jump-to-fix).
 - **PO Lookup, Upload** — re-skinned to the system.
 

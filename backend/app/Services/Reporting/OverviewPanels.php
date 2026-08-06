@@ -3,6 +3,7 @@
 namespace App\Services\Reporting;
 
 use App\Enums\Channel;
+use App\Enums\Marketplace;
 use App\Models\Cancellation;
 use App\Models\Delivery;
 use App\Models\PoLine;
@@ -120,7 +121,14 @@ class OverviewPanels
                 'currency' => Currency::code($row->currency ?? null),
                 'fill_rate' => ($row && $row->net_accepted > 0)
                     ? round((int) $row->shipped / (int) $row->net_accepted * 100, 1) : null,
-                'confirmation_rate' => ($row && $row->requested > 0)
+                /*
+                 * Amazon only. Noon has no accept step - it orders what it orders - so
+                 * accepted always equals requested and a "100%" here would advertise a
+                 * negotiation that never happened (§Q). Null reads as "not applicable",
+                 * which is the truth, and matches PurchaseOrder::confirmationRate().
+                 */
+                'confirmation_rate' => ($row && $row->requested > 0
+                    && $channel->marketplace() === Marketplace::Amazon)
                     ? round((int) $row->accepted / (int) $row->requested * 100, 1) : null,
             ];
         });

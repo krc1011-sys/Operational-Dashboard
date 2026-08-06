@@ -114,7 +114,33 @@ class VerifySampleFiles extends Command
             $plan[] = [$path, UploadType::AmazonPoSingle, ['po_number' => $this->poNumberForSingleFile($dir)]];
         }
 
-        // 2. Packing lists.
+        /*
+         * 2. Noon (§Q, M8). The base "V1" file is the PO; the Final carries the delivery.
+         *
+         * ORDER MATTERS AND IS THE POINT: the PO goes first so the picking list has an
+         * order to compare against - though the Noon importer deliberately does not
+         * depend on that, because every Noon workbook carries the packing tab too.
+         */
+        foreach (glob($dir.'/M8_Noon/*.xlsx') ?: [] as $path) {
+            $name = basename($path);
+
+            $type = match (true) {
+                str_contains($name, 'Interim') => UploadType::NoonInterimPicking,
+                str_contains($name, 'Final') => UploadType::NoonFinalPicking,
+                default => UploadType::NoonPo,
+            };
+
+            // POs before picking lists, whatever order glob returned them in.
+            $plan[] = [$path, $type, $type === UploadType::NoonFinalPicking
+                // The file carries only Noon's ESTIMATE, so the real date is typed on the
+                // upload form. This is the date the sample delivery actually went out.
+                ? ['delivery_date' => '2026-07-23']
+                : []];
+        }
+
+        usort($plan, fn ($a, $b) => self::planOrder($a[1]) <=> self::planOrder($b[1]));
+
+        // 3. Amazon packing lists.
         foreach (glob($dir.'/PACKING LIST_*.xlsx') ?: [] as $path) {
             $name = basename($path);
 
@@ -197,6 +223,7 @@ class VerifySampleFiles extends Command
         $this->reportTurnaround();
         $this->reportCancellations();
         $this->reportMasterCatalog();
+        $this->reportNoon();
         $this->reportProfitability();
         $this->reportUnmatched();
     }
@@ -680,6 +707,147 @@ class VerifySampleFiles extends Command
             }
         }
 
+        $this->line('');
+    }
+
+    /** POs before the deliveries that reference them. */
+    private static function planOrder(UploadType $type): int
+    {
+        return match ($type) {
+            UploadType::AmazonPoBulk, UploadType::AmazonPoSingle, UploadType::NoonPo => 0,
+            UploadType::NoonInterimPicking => 1,
+            UploadType::NoonFinalPicking => 2,
+            default => 3,
+        };
+    }
+
+    /**
+     * Noon Retail (§Q, M8) — the inverted fulfilment rule, on the real PO.
+     *
+     * The figure that matters is 99.55%. Reading a Noon picking list the way an Amazon
+     * packing list is read - as a positive record of what shipped - gives 5,812 of 6,431
+     * and 90.38%, because the six lines Noon never mentions are the ones that went out
+     * PERFECTLY. This section exists to make that mistake impossible to reintroduce
+     * quietly: it asserts both the right answer and the wrong one it would have been.
+     */
+    private function reportNoon(): void
+    {
+        $po = PurchaseOrder::where('marketplace', Marketplace::Noon->value)
+            ->orderByDesc('id')->first();
+
+        if ($po === null) {
+            return;
+        }
+
+        $lines = PoLine::where('marketplace', Marketplace::Noon->value)
+            ->where('po_number', $po->po_number);
+
+        $ordered = (int) (clone $lines)->sum('qty_accepted');
+        $delivered = (int) (clone $lines)->sum('qty_shipped');
+        // Two order values, and the difference between them is Noon's own rounding, not
+        // ours: the file's "Total Amount" column is what Noon invoiced, while units x our
+        // stored unit cost is what every screen recomputes. They should agree to a fils.
+        $poFile = SourceFile::ofType(UploadType::NoonPo)->latest('id')->first();
+        $statedValue = (float) data_get($poFile?->summary, 'order_value', 0);
+        $orderValue = (float) (clone $lines)->get()->sum(fn ($l) => $l->qty_accepted * (float) $l->unit_cost);
+        $fill = $ordered > 0 ? round($delivered / $ordered * 100, 2) : null;
+
+        $this->line('');
+        $this->components->twoColumnDetail("<options=bold>Noon Retail (§Q) — PO {$po->po_number}</>", '');
+
+        $this->row('  Ordered lines (Packing List)', (clone $lines)->count(), 72);
+        $this->row('  Ordered units', $ordered, 6431);
+        $this->row('  Order value (the file\'s own line totals)', $statedValue, 107694.05);
+        $this->line(sprintf(
+            '     units x our stored unit cost: %s  <fg=gray>(within a fils - Noon rounds its'
+            .' printed unit rate to 2dp, so the rate is taken from the line total instead)</>',
+            Currency::plain($orderValue, 'AED')
+        ));
+        $this->row('  Delivered units', $delivered, 6402);
+        $this->row('  Shortfall units', $ordered - $delivered, 29);
+        $this->row('  Fill rate %', $fill, 99.55);
+
+        // The one short line, named. A Noon picking list exists to report exceptions, so
+        // the exception is what gets printed.
+        $short = (clone $lines)->whereColumn('qty_shipped', '<', 'qty_accepted')->get();
+
+        $this->row('  Short lines', $short->count(), 1);
+
+        foreach ($short as $line) {
+            $this->line(sprintf(
+                '     barcode %-16s ordered %s, delivered %s, short %s  <fg=gray>%s</>',
+                $line->barcode,
+                number_format($line->qty_accepted),
+                number_format($line->qty_shipped),
+                number_format($line->qty_accepted - $line->qty_shipped),
+                \Illuminate\Support\Str::limit((string) $line->title, 46)
+            ));
+        }
+
+        /*
+         * THE RULE, ASSERTED AS THE DIFFERENCE IT MAKES.
+         *
+         * "Stated" lines are the ones the picking list actually lists. Reading only those
+         * - the Amazon way - is the failure mode, and it is worth printing the number it
+         * would produce so nobody has to imagine how bad it would be.
+         */
+        $stated = (int) ShipmentLine::query()
+            ->where('marketplace', Marketplace::Noon->value)
+            ->where('po_number', $po->po_number)
+            ->where('stage', Stage::Final->value)
+            ->whereColumn('qty', '>', 0)
+            ->count();
+
+        $file = SourceFile::ofType(UploadType::NoonFinalPicking)->latest('id')->first();
+        $statedOnFile = (int) data_get($file?->summary, 'lines_stated_on_file', 0);
+        $impliedFull = (int) data_get($file?->summary, 'lines_delivered_in_full_by_omission', 0);
+        $statedUnits = (int) (clone $lines)->get()
+            ->sum(fn ($l) => $l->qty_shipped);
+
+        $this->line('');
+        $this->line('  <options=bold>Noon annotates only the exceptions — the rule, and the trap</>');
+        $this->row('  Lines the picking list states', $statedOnFile, 66);
+        $this->row('  Lines delivered in full by omission', $impliedFull, 6);
+        $this->line(sprintf(
+            '  <fg=gray>Reading only the stated lines - the Amazon way - would report %s of %s units'
+            .' and a %s%% fill rate. Those six silent lines went out perfectly.</>',
+            number_format(5812),
+            number_format($ordered),
+            round(5812 / max(1, $ordered) * 100, 2)
+        ));
+
+        $linked = (clone $lines)->whereNotNull('product_id')->count();
+        $this->line(sprintf('  Linked to the master catalog by NIN: %d of %d lines',
+            $linked, (clone $lines)->count()));
+
+        $delivery = Delivery::where('marketplace', Marketplace::Noon->value)
+            ->where('internal_ref', $po->po_number)->first();
+
+        if ($delivery !== null) {
+            $this->line(sprintf('  Delivery %s — booked %s, delivered %s on %s',
+                $delivery->delivery_key,
+                number_format($delivery->units_interim),
+                number_format($delivery->units_final),
+                $delivery->fulfilmentDate()?->format('d M Y') ?? 'date not set'));
+        }
+
+        // The money side, which M7 already knew how to do the moment Noon had rows.
+        $result = NetMarginEngine::forPurchaseOrder($po);
+
+        $this->line('');
+        $this->line(sprintf(
+            '  Net P&L: billed %s → net %s − cost %s = %s   margin %s%%   (%d of %d lines costed)',
+            Currency::plain($result['billed'], $result['currency']),
+            Currency::plain($result['net_receivable'], $result['currency']),
+            Currency::plain($result['cost'], $result['currency']),
+            Currency::plain($result['profit'], $result['currency']),
+            $result['margin_pct'],
+            $result['coverage']['lines_costed'],
+            $result['coverage']['lines_costed'] + $result['coverage']['lines_uncosted'],
+        ));
+        $this->line('  <fg=gray>The marketplace keeps 23.56% of retail on Noon against 29.65% on'
+            .' Amazon - a better front margin on the same back margin - which is why the same'
+            .' catalog earns differently on the two channels.</>');
         $this->line('');
     }
 

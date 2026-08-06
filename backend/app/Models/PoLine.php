@@ -81,7 +81,16 @@ class PoLine extends Model
     /** Not-booked = net accepted - booked - cancelled (§F). Never negative on screen. */
     public function computeNotBooked(): int
     {
-        return max(0, $this->computeNetAccepted() - $this->qty_booked);
+        /*
+         * Shipped units are booked BY DEFINITION, whatever the interim said.
+         *
+         * Amazon always sends an interim before a final, so booked was never smaller than
+         * shipped and this read `- qty_booked`. Noon is one-shot: a PO can go straight to
+         * a final with no interim at all, and that made every delivered Noon line report
+         * its whole quantity as "not booked" - units sitting on the Not-booked tab that
+         * had already gone out of the door (§Q).
+         */
+        return max(0, $this->computeNetAccepted() - max($this->qty_booked, $this->qty_shipped));
     }
 
     /** Fill rate (final) = shipped / net accepted (§E). Null when there is nothing to fill. */

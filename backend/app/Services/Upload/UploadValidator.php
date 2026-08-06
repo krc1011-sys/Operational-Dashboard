@@ -115,7 +115,7 @@ class UploadValidator
             }
         }
 
-        if ($sheet->highestRow() <= $headerRow) {
+        if ($sheet->highestRow() <= $headerRow && ! $definition->allowsNoDataRows) {
             return ValidationResult::fail(sprintf(
                 'The %s tab has a valid header but no data rows underneath it.',
                 $sheetName

@@ -159,6 +159,8 @@
                             <th>Owner</th>
                             <th>Origin</th>
                             <th>Identifiers</th>
+                            {{-- Not money: it explains why a margin reads N/A, so everyone sees it. --}}
+                            <th style="text-align:center">Bundle<br>component</th>
                             @if ($canSeeMoney)
                                 <th>Suppliers</th>
                                 <th class="num">Cost</th>
@@ -195,6 +197,30 @@
                                     @empty
                                         <span style="color:var(--faint)">none</span>
                                     @endforelse
+                                </td>
+
+                                {{--
+                                    "Bundle component (not sold standalone)" (M8).
+
+                                    Only a person knows which products these are - nothing
+                                    in the master sheet says so - which is why it is a
+                                    toggle here rather than something inferred. Flagging a
+                                    product changes NO figure: it keeps every cost and
+                                    purchase number it has, and is simply held out of the
+                                    margin rankings, where a margin against a price that
+                                    was never charged would crowd out a real loss.
+                                --}}
+                                <td style="text-align:center">
+                                    @if ($canEdit)
+                                        <input type="checkbox" style="cursor:pointer;width:15px;height:15px"
+                                               @checked($product->is_bundle_component)
+                                               title="Never sold on its own. Keeps its cost everywhere; held out of margin rankings."
+                                               @change="save($el, 'products', {{ $product->id }}, 'is_bundle_component', $el.checked ? '1' : '0')">
+                                    @elseif ($product->is_bundle_component)
+                                        <span class="tag" title="Never sold on its own, so its margin is not ranked">bundle</span>
+                                    @else
+                                        <span style="color:var(--faint)">—</span>
+                                    @endif
                                 </td>
 
                                 @if ($canSeeMoney)
@@ -277,7 +303,7 @@
                                 @endif
                             </tr>
                         @empty
-                            <tr><td colspan="12" class="empty">
+                            <tr><td colspan="13" class="empty">
                                 No products match.
                                 @if ($stats['products'] === 0) Upload the master sheet to fill the catalog. @endif
                             </td></tr>
@@ -314,9 +340,19 @@
         function masterGrid() {
             return {
                 /** Save one cell, then repaint whatever the engine recomputed from it. */
-                async save(el, kind, id, field) {
+                /**
+                 * Save one cell, then repaint whatever the engine recomputed from it.
+                 *
+                 * `override` is for controls whose meaning is not their .value - the
+                 * bundle-component checkbox sends '1'/'0' from its checked state. Text
+                 * cells pass nothing and behave exactly as they did.
+                 */
+                async save(el, kind, id, field, override = null) {
+                    const isToggle = override !== null;
+                    const value = isToggle ? override : el.value;
                     const original = el.dataset.original ?? '';
-                    if (el.value === original) return;
+
+                    if (!isToggle && value === original) return;
 
                     el.style.background = '';
 
@@ -328,7 +364,7 @@
                                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
                                 'Accept': 'application/json',
                             },
-                            body: JSON.stringify({ field, value: el.value }),
+                            body: JSON.stringify({ field, value }),
                         });
 
                         if (!response.ok) {
@@ -337,7 +373,7 @@
                         }
 
                         const data = await response.json();
-                        el.dataset.original = el.value;
+                        el.dataset.original = value;
                         el.style.background = 'var(--good-soft)';
                         setTimeout(() => { el.style.background = ''; }, 900);
 
@@ -350,7 +386,7 @@
                     } catch (error) {
                         // Put the old value back rather than leave a number on screen that
                         // was never saved.
-                        el.value = original;
+                        if (isToggle) { el.checked = !el.checked; } else { el.value = original; }
                         el.style.background = 'var(--bad-soft)';
                         alert(error.message + '\n\nThe old value has been put back.');
                     }

@@ -156,14 +156,26 @@ class MoneyController extends Controller
      */
     private function skuSummary($rows): array
     {
-        $revenue = (float) $rows->sum(fn ($r) => $r['blend']['revenue_total']);
-        $profit = (float) $rows->sum(fn ($r) => $r['blend']['profit_total']);
+        /*
+         * Bundle components are out of every ranked figure here (M8).
+         *
+         * They are never sold on their own, so the selling price their margin is computed
+         * against was never charged - including them in the headline would let a phantom
+         * loss move a real number. Their COST is untouched and still on screen; it is the
+         * verdict that is withheld, not the data.
+         */
+        $rankable = $rows->reject(fn ($r) => $r['bundle_component']);
+
+        $revenue = (float) $rankable->sum(fn ($r) => $r['blend']['revenue_total']);
+        $profit = (float) $rankable->sum(fn ($r) => $r['blend']['profit_total']);
 
         return [
             'skus' => $rows->count(),
-            'profitable' => $rows->filter(fn ($r) => $r['profitable'] === true)->count(),
-            'losing' => $rows->filter(fn ($r) => $r['profitable'] === false)->count(),
-            'unknown' => $rows->filter(fn ($r) => $r['profitable'] === null)->count(),
+            'rankable' => $rankable->count(),
+            'profitable' => $rankable->filter(fn ($r) => $r['profitable'] === true)->count(),
+            'losing' => $rankable->filter(fn ($r) => $r['profitable'] === false)->count(),
+            'unknown' => $rankable->filter(fn ($r) => $r['profitable'] === null)->count(),
+            'bundle_components' => $rows->count() - $rankable->count(),
             'margin_pct' => $revenue > 0 ? round($profit / $revenue * 100, 2) : null,
             'shipped_weighted' => $rows->filter(
                 fn ($r) => $r['blend']['weight_basis'] === SkuMargin::BASIS_SHIPPED
@@ -244,10 +256,15 @@ class MoneyController extends Controller
                     $row['code'], $row['name'], $row['brand'], $row['category'],
                     'BLENDED — '.SkuMargin::selectors()[$selector], Currency::code($row['currency']),
                     $row['blend']['units'], null, $row['blend']['net_receivable'],
-                    $row['blend']['cogs'], $row['blend']['profit'], $row['blend']['margin_pct'],
-                    $row['blend']['weight_basis'] === SkuMargin::BASIS_SHIPPED
-                        ? 'revenue-weighted on units shipped'
-                        : 'revenue-weighted per unit (nothing shipped yet)',
+                    $row['blend']['cogs'],
+                    // Cost travels; the margin does not, for a price never charged.
+                    $row['bundle_component'] ? null : $row['blend']['profit'],
+                    $row['bundle_component'] ? \App\Models\Product::BUNDLE_MARGIN_LABEL : $row['blend']['margin_pct'],
+                    $row['bundle_component']
+                        ? 'bundle component — excluded from margin rankings'
+                        : ($row['blend']['weight_basis'] === SkuMargin::BASIS_SHIPPED
+                            ? 'revenue-weighted on units shipped'
+                            : 'revenue-weighted per unit (nothing shipped yet)'),
                 ];
             }
         };

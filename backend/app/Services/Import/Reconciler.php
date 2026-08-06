@@ -249,11 +249,18 @@ class Reconciler
         $delivery->units_interim = (int) ($totals[Stage::Interim->value]->units ?? 0);
         $delivery->units_final = (int) ($totals[Stage::Final->value]->units ?? 0);
 
-        // Prefer the sheet's own "Invoice value" banner when we captured it, since that
-        // is the figure the accounts work from; otherwise sum our line values.
-        $delivery->value_interim = $delivery->value_interim
+        /*
+         * Prefer the sheet's own "Invoice value" banner when we captured it, since that is
+         * the figure the accounts work from; otherwise sum our line values.
+         *
+         * Cast before testing. These columns are decimal-cast, so an unset one reads as
+         * the STRING "0.00" - which is truthy, so `?:` kept it and the delivery's value
+         * stayed at zero. Amazon never showed it because its banner always supplies a
+         * figure; Noon has no banner, and every Noon delivery came out worth nothing.
+         */
+        $delivery->value_interim = (float) $delivery->value_interim
             ?: (float) ($totals[Stage::Interim->value]->value ?? 0);
-        $delivery->value_final = $delivery->value_final
+        $delivery->value_final = (float) $delivery->value_final
             ?: (float) ($totals[Stage::Final->value]->value ?? 0);
 
         // Shortfall only means something once BOTH stages exist (§L).

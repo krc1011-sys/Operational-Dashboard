@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -37,12 +38,19 @@ class Product extends Model
     public const EDITABLE = [
         'name', 'short_description', 'brand', 'category', 'sub_category', 'owner',
         'origin', 'barcode', 'suppliers', 'cartons', 'product_cost', 'is_active',
+        // "Bundle component (not sold standalone)" (M8). Editable by hand because only a
+        // person knows which products these are - nothing in the file says so.
+        'is_bundle_component',
     ];
+
+    /** How a bundle component's margin reads instead of a meaningless percentage. */
+    public const BUNDLE_MARGIN_LABEL = 'N/A — bundle component';
 
     protected function casts(): array
     {
         return [
             'is_active' => 'boolean',
+            'is_bundle_component' => 'boolean',
             'cost_updated_at' => 'datetime',
             'extra' => 'array',
             'cartons' => 'integer',
@@ -64,6 +72,26 @@ class Product extends Model
     public function anomalies(): HasMany
     {
         return $this->hasMany(MasterAnomaly::class);
+    }
+
+    /**
+     * Products whose margin means something (M8).
+     *
+     * A bundle component is never sold on its own, so it has a real cost against a selling
+     * price that was never charged - the engine's answer for it is arithmetic over a
+     * fiction. Ranked margin screens and loss watchlists use this scope so a phantom loss
+     * cannot crowd out a real one; COST screens deliberately do not, because what we paid
+     * for the thing is a fact whichever way it is sold.
+     */
+    public function scopeRankableForMargin(Builder $query): Builder
+    {
+        return $query->where('is_bundle_component', false);
+    }
+
+    /** Does this product's margin mean anything? */
+    public function hasMeaningfulMargin(): bool
+    {
+        return ! $this->is_bundle_component;
     }
 
     /**

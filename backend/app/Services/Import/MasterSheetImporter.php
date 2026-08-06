@@ -216,6 +216,18 @@ class MasterSheetImporter implements Importer
             // §S interim rule, recorded per product so the Phase-3 switch to a weighted
             // average is a data migration rather than a rewrite.
             $product->cost_basis = config('operon.cost_basis', 'latest');
+            /*
+             * The known bundle components, seeded on FIRST SIGHT only (M8).
+             *
+             * Nothing in the file says a product is a bundle component - only a person
+             * knows - so the starting list lives in config and is applied when the
+             * product is created. Re-importing the master never re-applies it, which is
+             * what makes the grid's toggle the last word: a flag set or cleared by hand
+             * survives every later upload.
+             */
+            $product->is_bundle_component = in_array(
+                $code, (array) config('operon.bundle_components', []), true
+            );
         }
 
         $product->cost_updated_at = now();

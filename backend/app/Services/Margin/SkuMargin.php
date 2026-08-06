@@ -39,9 +39,9 @@ use Illuminate\Support\Collection;
  * Revenue means revenue we actually recorded: units shipped × what we bank per unit. When
  * a SKU has shipped units on the channels in view, those units are the weights.
  *
- * When it has none — a catalog product not yet ordered, or, today, ANY product's Noon and
- * DFS side, because Noon lands at M8 and DFS at M9 — there is no recorded revenue to
- * weight by. Rather than report nothing, the blend falls back to one unit of each channel,
+ * When it has none — a catalog product not yet ordered, or a product's DFS side, which has
+ * no PO and no shipped units until M9 — there is no recorded revenue to weight by. Rather
+ * than report nothing, the blend falls back to one unit of each channel,
  * which is still a revenue weighting (each channel weighted by its own per-unit
  * receivable) and is the honest reading of "if we sold these side by side".
  *
@@ -197,8 +197,17 @@ class SkuMargin
 
         $rows = self::build($products, $channels)
             ->values()
-            // Worst margin first: the point of the screen is finding what loses money.
-            ->sortBy(fn ($row) => $row['blend']['margin_pct'] ?? PHP_INT_MAX)
+            /*
+             * Worst margin first: the point of the screen is finding what loses money.
+             *
+             * Bundle components and unpriced rows sort to the END rather than being
+             * dropped - somebody searching for one still needs to find it - but they are
+             * out of the ranking, which is what §M8 asks for. A phantom loss at the top of
+             * a watchlist pushes a real one off the bottom of it.
+             */
+            ->sortBy(fn ($row) => $row['bundle_component']
+                ? PHP_INT_MAX
+                : ($row['blend']['margin_pct'] ?? PHP_INT_MAX - 1))
             ->values();
 
         return $limit === null ? $rows : $rows->take($limit);
@@ -277,6 +286,10 @@ class SkuMargin
                 // the flag on it, because hiding it would be worse: the SKU is real and
                 // somebody is looking for it.
                 'flagged' => $product->relationLoaded('anomalies') && $product->anomalies->isNotEmpty(),
+                // A bundle component is never sold on its own, so the selling price its
+                // margin is computed against was never charged (M8). Its COST is real and
+                // stays on screen; its margin is withheld rather than printed.
+                'bundle_component' => (bool) $product->is_bundle_component,
                 'name' => $product->name,
                 'brand' => $product->brand,
                 'category' => $product->category,
@@ -286,9 +299,12 @@ class SkuMargin
                 'channels' => $perChannel,
                 'blend' => $blend,
                 'currency' => Currency::single(array_column($perChannel, 'currency')),
-                // A SKU is "profitable" only when we can say so: no margin means no
-                // verdict, which is a third state and not a failure.
-                'profitable' => $blend['margin_pct'] === null ? null : $blend['margin_pct'] > 0,
+                // A SKU is "profitable" only when we can say so. Two ways we cannot: no
+                // selling price at all, and a selling price that was never charged. Both
+                // are "no verdict", which is a third state and not a failure.
+                'profitable' => ($product->is_bundle_component || $blend['margin_pct'] === null)
+                    ? null
+                    : $blend['margin_pct'] > 0,
             ]];
         });
     }

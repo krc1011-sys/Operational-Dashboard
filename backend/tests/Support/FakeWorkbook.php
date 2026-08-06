@@ -58,6 +58,136 @@ class FakeWorkbook
         return $this;
     }
 
+    /**
+     * A Noon workbook — all four tabs, in the real layout (§Q, M8).
+     *
+     * The shape here is copied from the genuine PO 287285145169960 and every awkward part
+     * of it is deliberate, because each one is a rule the importer has to survive:
+     *
+     *  - the PO tab is NAMED for the PO number and holds a label/value grid, not a table;
+     *  - the Packing List is the ORDER and the Picking List is the DELIVERY;
+     *  - the picking tab writes barcodes WITH a leading zero and the packing tab without;
+     *  - the final picking layout has an UNLABELLED column between NINs and Barcodes, so
+     *    positions differ from the interim's - which is the whole reason for header-name
+     *    mapping;
+     *  - "OG qty" is filled in ONLY on a short line;
+     *  - a line the picking list never mentions was delivered IN FULL.
+     *
+     * @param  array<int, array{0:string,1:string,2:int,3:float}>  $order  [nin, barcode, qty, unit rate ex VAT]
+     * @param  array<int, array{0:string,1:int,2:int|null}>|null  $picked  [barcode, qty, og qty] - omit a line to say "delivered in full"
+     */
+    public static function noon(
+        string $poNumber = '287285145169960',
+        ?array $order = null,
+        ?array $picked = null,
+        bool $interimLayout = false,
+        string $orderDate = '2026-07-21',
+        string $estimatedDelivery = '2026-07-22',
+    ): self {
+        $order ??= [
+            ['Z2BDF218C04567F51F081Z-1', '642135123720', 8, 2.75],
+            ['ZF46F642A4F9D20AA6291Z-1', '716841214895', 6, 36.35],
+            ['Z8C550B36EECA72A2A7ACZ-1', '716841215014', 221, 27.95],
+            ['ZE03BE2628042392137A5Z-1', '782003665812', 1, 27.95],
+        ];
+
+        // The header block: labels in one column, values a column or two along, exactly
+        // as Noon lays it out - left block at 1/3, right block at 8/9.
+        $meta = [
+            [],
+            ['Bandidos Retail LLC. (Formally known as Noon E-commerce)'],
+            ['Partner Name :', null, 'Brands Dynamo LLC', null, null, null, null, 'PU :', 'Noon Supermall - UAE'],
+            ['Partner Code :', null, 'LE3WVRU3GAE', null, null, null, null, 'P.O No :', $poNumber],
+            ['Partner Address :', null, 'Sharjah media City, Sharjah UAE'],
+            ['Contact Person :', null, null, null, null, null, null, 'BM :', 'Retail'],
+            ['Contact No :', null, null, null, null, null, null, 'Currency :', 'AED'],
+            ['Payment Terms :', null, null, null, null, null, null, 'Date :', $orderDate],
+            ['Payment Partner code:', null, 'Brands Dynamo LLC', null, null, null, null, 'Approval Date :', $orderDate],
+            ['Estimated Delivery Date :', null, $estimatedDelivery, null, null, null, null, 'Buyer :', 'noon.com'],
+            ['Shipment terms :', null, 'default', null, null, null, null, 'VAT No:', '100265405900003 (Dubai)'],
+            [],
+            ['Ship To :', 'LE1AZSSSOAE Tariaq Bedon Esm - KHIA 8'],
+        ];
+
+        $packingHeader = ['SR No', 'NINs', 'Product Title', 'GTIN', 'Seller Sku', 'Model Number',
+            'Category', 'Brand', 'Size', 'COO', 'UOM Qty', 'Unit Rate', 'Vat', 'Final Cost', 'Total Amount'];
+
+        $packing = [$packingHeader];
+        $units = 0;
+        $grand = 0.0;
+
+        foreach ($order as $index => [$nin, $barcode, $qty, $rate]) {
+            $vat = round($rate * 0.05, 3);
+            // "Final Cost" is the VAT-inclusive rate ROUNDED FOR PRINTING, while Total
+            // Amount is the line's true value. The importer has to prefer the second.
+            $final = round($rate + $vat, 2);
+            $total = round($qty * $rate * 1.05, 2);
+
+            $packing[] = [$index + 1, $nin, 'Test product '.($index + 1), $barcode,
+                'R'.str_pad((string) ($index + 1), 9, '0', STR_PAD_LEFT).'AEM', null,
+                'Non Food', 'Silver Pot', null, null, $qty, $rate, $vat, $final, $total];
+
+            $units += $qty;
+            $grand += $total;
+        }
+
+        // The PO tab repeats the packing table under its header block and totals it.
+        $poTab = array_merge($meta, [[]], $packing, [
+            ['Sub Total (AED)', null, null, null, null, null, null, null, null, null, $units,
+                null, null, null, round($grand / 1.05, 2)],
+            ['Grand Total (AED)', null, null, null, null, null, null, null, null, null, null,
+                null, null, null, round($grand, 2)],
+        ]);
+
+        /*
+         * The picking list. `$picked` lists ONLY what Noon chose to annotate; anything
+         * absent was delivered in full. Default: everything delivered, one line short.
+         */
+        $picked ??= [
+            ['642135123720', 8, null],
+            ['716841214895', 6, null],
+            ['716841215014', 192, 221],   // the short line, with its OG qty
+            // 782003665812 deliberately absent - delivered in full, silently.
+        ];
+
+        $rates = [];
+        foreach ($order as [$nin, $barcode, $qty, $rate]) {
+            $rates[$barcode] = [$nin, $rate];
+        }
+
+        if ($interimLayout) {
+            // 7 columns, Barcodes in 3, Qty in 5, no OG qty at all.
+            $picking = [['SR No', 'NINs', 'Barcodes', 'Short Title', 'Qty', 'Unit Rate', 'Match Key']];
+
+            foreach ($picked as $index => [$barcode, $qty, $ogQty]) {
+                [$nin, $rate] = $rates[$barcode] ?? [$barcode, 0];
+                $picking[] = [$index + 1, $nin, $barcode, 'Short title '.($index + 1), $qty, $rate, $barcode];
+            }
+        } else {
+            // 9 columns with an UNLABELLED consignment reference in column 3, so Barcodes
+            // lands in 4 and Qty in 6 - different positions for the same header names.
+            $picking = [['SR No', 'NINs', null, 'Barcodes', 'Short Title', 'Qty', 'Unit Rate', 'Match Key', 'OG qty']];
+
+            foreach ($picked as $index => [$barcode, $qty, $ogQty]) {
+                [$nin, $rate] = $rates[$barcode] ?? [$barcode, 0];
+                // The picking tab writes the barcode WITH a leading zero; the packing tab
+                // does not. Same product, and the importer has to know it.
+                $picking[] = [$index + 1, $nin, 'BD-3276-A05774845PN', '0'.$barcode,
+                    'Short title '.($index + 1), $qty, $rate, $barcode, $ogQty];
+            }
+        }
+
+        return (new self)
+            ->sheet('Short Titles', [
+                ['FULL MASTER SNAPSHOT (all brands)'], [], [],
+                ['ASIN', 'Model Number (Barcode)', 'Long Title (reference)', 'Short Title', 'Match Key (auto)'],
+                [null, '793618133450', null, 'Reference only', '793618133450'],
+            ])
+            ->sheet($poNumber, $poTab)
+            ->sheet('Packing List', $packing)
+            ->sheet('Picking List', $picking);
+    }
+
     /** Write to a temp file and return its path. Extension picks the format. */
     public function write(string $extension = 'xlsx'): string
     {

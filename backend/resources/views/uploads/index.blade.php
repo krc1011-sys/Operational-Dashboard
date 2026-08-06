@@ -75,6 +75,22 @@
                         <x-input-error :messages="$errors->get('order_date')" class="mt-2" />
                     </div>
 
+                    {{-- Noon's files carry no real delivery date, only Noon's estimate (§Q). --}}
+                    <div x-show="type === '{{ \App\Enums\UploadType::NoonFinalPicking->value }}'
+                                 || type === '{{ \App\Enums\UploadType::NoonInterimPicking->value }}'" x-cloak>
+                        <x-input-label for="delivery_date" value="Delivery date (optional)" />
+                        <x-text-input id="delivery_date" name="delivery_date" type="date" class="mt-1 block w-full"
+                                      :value="old('delivery_date')" />
+                        <p class="text-xs mt-1" style="color:var(--faint)">
+                            A Noon picking list carries only Noon's <em>estimated</em> delivery date, which is
+                            a plan rather than a fact. Turnaround is measured from the day the PO was raised to
+                            the day it actually went out, so type the real date here. Left blank, the delivery
+                            shows the upload day and marks it as inferred rather than inventing one — and you
+                            can still set it later from the delivery itself.
+                        </p>
+                        <x-input-error :messages="$errors->get('delivery_date')" class="mt-2" />
+                    </div>
+
                     <div>
                         <x-input-label for="file" value="2. Choose the file" />
                         <input id="file" name="file" type="file" required
