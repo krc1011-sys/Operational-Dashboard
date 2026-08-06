@@ -67,11 +67,14 @@
 
         @can('view-margin')
             <a class="nav {{ request()->routeIs('money.*') ? 'on' : '' }}" href="{{ route('money.index') }}">
-                <x-operon-icon name="Margin" />Margin
-                {{-- The padlock says "this asks for the PIN" before you click it. --}}
-                <svg viewBox="0 0 24 24" width="13" height="13" style="margin-left:auto;opacity:.55"
-                     fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                    <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+                <x-operon-icon name="Margin" />Profitability
+                {{-- Padlock shut says "this asks for the PIN"; open says the PIN is already in. --}}
+                @php($moneyUnlocked = \App\Support\MoneyGate::unlocked())
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+                     stroke-width="2" aria-hidden="true"
+                     style="margin-left:auto;opacity:{{ $moneyUnlocked ? '.95' : '.55' }};{{ $moneyUnlocked ? 'color:var(--good)' : '' }}">
+                    <rect x="5" y="11" width="14" height="10" rx="2"/>
+                    <path d="{{ $moneyUnlocked ? 'M8 11V7a4 4 0 0 1 7.7-1.4' : 'M8 11V7a4 4 0 0 1 8 0v4' }}"/>
                 </svg>
             </a>
         @endcan
@@ -120,6 +123,26 @@
             <div class="spacer"></div>
 
             {{ $controls ?? '' }}
+
+            {{--
+                An unlocked session is visible from every screen, not only the money ones.
+                Money figures are on shared screens now (M7), so "am I currently showing
+                profit to whoever is behind me?" has to be answerable at a glance — and
+                locking again has to be one click from wherever that question is asked.
+            --}}
+            @if (\App\Support\MoneyGate::unlocked() && ! request()->routeIs('money.*'))
+                <form method="POST" action="{{ route('money-pin.lock') }}" style="margin:0">
+                    @csrf
+                    <button class="pill on" type="submit"
+                            title="Money figures are showing. Click to hide them now.">
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+                             stroke-width="2" aria-hidden="true">
+                            <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.7-1.4"/>
+                        </svg>
+                        Money showing
+                    </button>
+                </form>
+            @endif
 
             <button class="pill" onclick="operonTheme()" title="Light / dark" aria-label="Toggle light or dark">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">

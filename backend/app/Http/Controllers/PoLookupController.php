@@ -7,8 +7,11 @@ use App\Models\Delivery;
 use App\Models\PoLine;
 use App\Models\PurchaseOrder;
 use App\Models\ShipmentLine;
+use App\Services\Margin\NetMarginEngine;
+use App\Services\Margin\ProfitAndLoss;
 use App\Services\Reporting\CsvExport;
 use App\Services\Reporting\FilterSet;
+use App\Support\MoneyGate;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -80,12 +83,29 @@ class PoLookupController extends Controller
 
         $deliveries = Delivery::whereIn('id', $byDelivery->keys())->get()->keyBy('id');
 
+        /*
+         * The M7 inline unlock (§Profitability).
+         *
+         * The PIN is NOT on this route and must not be: §O gives this screen to roles
+         * with no money permission at all, and bouncing them to a PIN prompt would take a
+         * screen away to protect columns they were never going to be shown. So the screen
+         * stays open and simply grows a P&L panel and three extra columns for someone who
+         * holds `view-margin` and has the PIN in.
+         *
+         * Order value - units x the marketplace's own unit price - is NOT part of this.
+         * It stays visible to every role, PIN or no PIN (User::canSeeOrderValue).
+         */
+        $canSeeMargin = MoneyGate::canSeeMargin();
+
         return view('reports.po-detail', [
             'order' => $order,
             'lines' => PoLine::where('marketplace', $order->marketplace->value)
                 ->where('po_number', $order->po_number)
                 ->orderBy('sku_id')
+                ->with('product.economics')
                 ->get(),
+            'canSeeMargin' => $canSeeMargin,
+            'pnl' => $canSeeMargin ? ProfitAndLoss::forPurchaseOrder($order) : null,
             'deliveries' => $deliveries,
             'byDelivery' => $byDelivery,
             'benchmark' => (int) config('operon.benchmarks.turnaround_days'),

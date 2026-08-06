@@ -288,6 +288,66 @@ a.kpi:hover { border-color: var(--border-2); }
 .ch .mt { font-size: 11px; color: var(--muted); margin-top: 1px; }
 .ch .amt { font-size: 12.5px; font-weight: 750; color: var(--ink); white-space: nowrap; margin-left: auto; }
 
+/* --- P&L statement (§Profitability, M7) --------------------------------
+ |
+ | A statement is read down a single column, so it is built as a two-column table with
+ | the figures right-aligned and tabular: the eye adds them up, and it can only do that
+ | if the decimal points line up and the indent tells it which lines are workings and
+ | which are answers.
+ |
+ | Deductions are indented and muted; subtotals sit on a rule; the result sits on a
+ | heavier rule and is the only line at display size. That hierarchy is the whole reason
+ | this is not just another .tbl.
+ */
+
+.pnl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.pnl th {
+    text-align: left; font-weight: 600; color: var(--text); padding: 9px 10px 9px 0;
+    vertical-align: top;
+}
+.pnl th .l { display: flex; align-items: center; gap: 7px; font-weight: 650; }
+.pnl th .n { display: block; font-size: 11px; color: var(--faint); margin-top: 3px; font-weight: 500; line-height: 1.5; }
+.pnl td {
+    text-align: right; padding: 9px 0; white-space: nowrap; font-weight: 650;
+    color: var(--text); vertical-align: top; font-size: 13px;
+}
+
+/* Deductions: stepped in, so the workings never read as answers. */
+.pnl tr.deduction th { padding-left: 16px; font-weight: 550; color: var(--muted); }
+.pnl tr.deduction td { color: var(--muted); font-weight: 600; }
+
+.pnl tr.subtotal th, .pnl tr.subtotal td { border-top: 1px solid var(--border-2); font-weight: 750; }
+.pnl tr.subtotal td { color: var(--ink); }
+
+.pnl tr.result th, .pnl tr.result td {
+    border-top: 2px solid var(--ink); padding-top: 12px; font-weight: 800;
+}
+.pnl tr.result td { font-size: 19px; letter-spacing: -.4px; color: var(--good); }
+.pnl tr.result.loss td { color: var(--bad); }
+
+.pnl.compact th .n { display: none; }
+.pnl.compact th, .pnl.compact td { padding-top: 6px; padding-bottom: 6px; }
+
+.pnlfoot { margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
+.pnlfoot > div {
+    font-size: 11.5px; color: var(--muted); line-height: 1.6;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--r-sm); padding: 9px 12px;
+}
+.pnlfoot > div.warn { background: var(--amber-tint); border-color: transparent; }
+.pnlfoot b { color: var(--text); font-weight: 700; }
+
+/* The margin figure in a table cell: coloured by sign, never by size. */
+.mg { font-weight: 750; }
+.mg.pos { color: var(--good); }
+.mg.neg { color: var(--bad); }
+.mg.unk { color: var(--faint); font-weight: 600; }
+
+/* Channel sub-rows under a SKU on the margin table. */
+.tbl tr.sub td { background: var(--surface-2); font-size: 11.5px; }
+.tbl tr.sub td:first-child { padding-left: 26px; color: var(--muted); }
+.tbl tr.blend td { font-weight: 750; }
+
 /* --- Status pills, generic bits ---------------------------------------- */
 
 .tag {

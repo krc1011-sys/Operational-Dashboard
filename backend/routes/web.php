@@ -4,6 +4,7 @@ use App\Http\Controllers\CancellationDecisionController;
 use App\Http\Controllers\DeliveriesController;
 use App\Http\Controllers\FulfilmentController;
 use App\Http\Controllers\MasterController;
+use App\Http\Controllers\MoneyController;
 use App\Http\Controllers\MoneyPinController;
 use App\Http\Controllers\OverviewController;
 use App\Http\Controllers\PoLookupController;
@@ -41,12 +42,17 @@ Route::middleware('auth')->group(function () {
     Route::post('/money-pin/lock', [MoneyPinController::class, 'destroy'])->name('money-pin.lock');
 
     /*
-     * Placeholder for the M7 money views. It exists now so the two-layer guard
-     * (role permission + PIN) is wired and testable from M0 onwards.
+     * Profitability — the money views (§Profitability, M7).
+     *
+     * The whole group is `view-margin` + the PIN, unlike the master catalog: there is
+     * nothing on these URLs that is not money, so there is no screen to lose by guarding
+     * the door. The inline money columns M7 adds to PO detail and Products are a
+     * different thing and are gated inside those controllers instead (MoneyGate).
      */
-    Route::get('/money', fn () => view('money-placeholder'))
-        ->middleware(['permission:view-margin', 'money.pin'])
-        ->name('money.index');
+    Route::middleware(['permission:view-margin', 'money.pin'])->group(function () {
+        Route::match(['get', 'post'], '/money', [MoneyController::class, 'index'])->name('money.index');
+        Route::get('/money/po/{poNumber}', [MoneyController::class, 'show'])->name('money.po');
+    });
 
     /*
      * The core screens (§M, M5).

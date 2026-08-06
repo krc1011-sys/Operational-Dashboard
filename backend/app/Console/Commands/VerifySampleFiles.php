@@ -17,6 +17,10 @@ use App\Models\PurchaseOrder;
 use App\Models\ShipmentLine;
 use App\Models\SourceFile;
 use App\Models\User;
+use App\Services\Margin\NetMarginEngine;
+use App\Services\Margin\ProfitAndLoss;
+use App\Services\Margin\SkuMargin;
+use App\Services\Reporting\FilterSet;
 use App\Services\Spreadsheet\Workbook;
 use App\Services\Upload\UploadService;
 use App\Support\Currency;
@@ -193,7 +197,108 @@ class VerifySampleFiles extends Command
         $this->reportTurnaround();
         $this->reportCancellations();
         $this->reportMasterCatalog();
+        $this->reportProfitability();
         $this->reportUnmatched();
+    }
+
+    /**
+     * The M7 money views, on the real reconciled PO (§Profitability).
+     *
+     * The figure that matters is 18.13%. It is the answer M6's corrected engine gives for
+     * the 8-delivery PO, and M7 is views over that answer, not a second calculation - so
+     * if the P&L statement the screens print ever stops reproducing it, either a screen
+     * has started doing its own arithmetic or the engine has drifted. Both are fatal, and
+     * both are caught here.
+     *
+     * The statement is printed line by line as well as checked, because the point of a
+     * P&L is that a person can add it up themselves.
+     */
+    private function reportProfitability(): void
+    {
+        $po = PurchaseOrder::query()
+            ->whereHas('lines', fn ($q) => $q->where('qty_shipped', '>', 0))
+            ->get()
+            ->map(fn (PurchaseOrder $order) => [$order, NetMarginEngine::forPurchaseOrder($order)])
+            ->sortByDesc(fn ($pair) => $pair[1]['billed'])
+            ->first();
+
+        if ($po === null) {
+            return;
+        }
+
+        [$order, $result] = $po;
+        $statement = ProfitAndLoss::fromResult($result, $order);
+        $currency = $statement['currency'];
+
+        $this->line('');
+        $this->components->twoColumnDetail("<options=bold>PO-level net P&L (§Profitability) — {$order->po_number}</>", '');
+
+        foreach ($statement['lines'] as $line) {
+            $amount = $line['amount'];
+
+            $this->line(sprintf(
+                '  %s%-38s %16s%s',
+                in_array($line['kind'], [ProfitAndLoss::SUBTOTAL, ProfitAndLoss::RESULT], true) ? '' : '  ',
+                $line['label'],
+                $amount === null ? '—' : Currency::plain($amount, $currency),
+                empty($line['pending']) ? '' : '   <fg=yellow>('.ProfitAndLoss::UNTIL_DATA_ADDED.')</>'
+            ));
+        }
+
+        $this->line('');
+
+        // The blueprint-validated answers for this PO, from M6's corrected engine.
+        $this->row('  Invoiced (billed)', $result['billed'], 223511.20);
+        $this->row('  Net receivable (after the back margin)', $result['net_receivable'], 173937.19);
+        $this->row('  Our cost', $result['cost'], 142399.50);
+        $this->row('  Net profit', $result['profit'], 31537.69);
+        $this->row('  MARGIN %', $result['margin_pct'], 18.13);
+        $this->row('  Lines costed', $result['coverage']['lines_costed'], 85);
+
+        // The property that makes the statement worth printing: its lines add up to it.
+        $this->row(
+            '  Cost lines total the cost',
+            round(array_sum($result['cost_breakdown']), 2),
+            round((float) $result['cost'], 2)
+        );
+
+        if ($statement['pending'] !== []) {
+            $this->line(sprintf(
+                '  <fg=gray>%s read 0: the master sheet carries no figure for them yet. The lines are'
+                .' wired to the same engine as every other cost and fill in on their own.</>',
+                implode(', ', $statement['pending'])
+            ));
+        }
+
+        // SKU-level, blended. The rule being demonstrated is that "Both" is weighted.
+        $skus = SkuMargin::rows(SkuMargin::BOTH, new FilterSet, 5000);
+
+        if ($skus->isEmpty()) {
+            return;
+        }
+
+        $priced = $skus->filter(fn ($row) => $row['blend']['margin_pct'] !== null);
+        $weighted = $priced->sum(fn ($row) => $row['blend']['profit_total']);
+        $revenue = $priced->sum(fn ($row) => $row['blend']['revenue_total']);
+        $simpleMean = $priced->avg(fn ($row) => $row['blend']['margin_pct']);
+
+        $this->line('');
+        $this->components->twoColumnDetail('<options=bold>SKU-level net margin (§Profitability)</>', '');
+
+        $this->line(sprintf('  %s SKU(s) with economics · %s profitable · %s losing money · %s with no verdict',
+            number_format($skus->count()),
+            number_format($skus->filter(fn ($r) => $r['profitable'] === true)->count()),
+            number_format($skus->filter(fn ($r) => $r['profitable'] === false)->count()),
+            number_format($skus->filter(fn ($r) => $r['profitable'] === null)->count())));
+
+        $this->line(sprintf(
+            '  Blended margin, REVENUE-WEIGHTED  %6s%%      a simple mean would say %s%%',
+            $revenue > 0 ? round($weighted / $revenue * 100, 2) : '—',
+            round((float) $simpleMean, 2)
+        ));
+        $this->line('  <fg=gray>Those two are different numbers and the blueprint asks for the first one.</>');
+
+        $this->line('');
     }
 
     /**

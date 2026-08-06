@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Middleware\EnsureMoneyPinVerified;
 use App\Models\MasterAnomaly;
 use App\Models\Product;
 use App\Models\ProductChannelEconomics;
 use App\Services\Margin\NetMarginEngine;
 use App\Services\Reporting\CsvExport;
 use App\Support\Currency;
+use App\Support\MoneyGate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -221,13 +221,13 @@ class MasterController extends Controller
     private function canEdit(Request $request): bool
     {
         return $request->user()->can('manage-master')
-            && EnsureMoneyPinVerified::verified($request);
+            && MoneyGate::unlocked();
     }
 
     private function canSeeMoney(Request $request): bool
     {
         return $request->user()->canAny(['view-margin', 'view-sku-cost'])
-            && EnsureMoneyPinVerified::verified($request);
+            && MoneyGate::unlocked();
     }
 
     private function export(Request $request, $query, bool $withMoney): StreamedResponse

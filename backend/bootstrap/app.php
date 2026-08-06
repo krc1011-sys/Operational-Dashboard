@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureMoneyPinVerified;
+use App\Http\Middleware\TouchMoneyPinSession;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -16,6 +17,15 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        /*
+         * The money PIN is unlock-for-the-session, so its idle window slides on any
+         * request rather than only on the money routes (§S, M7). Harmless on a locked
+         * session — it can postpone a lock, never skip one.
+         */
+        $middleware->web(append: [
+            TouchMoneyPinSession::class,
+        ]);
+
         $middleware->alias([
             // Spatie role/permission gates — used to protect every OperON screen.
             'role' => RoleMiddleware::class,

@@ -80,7 +80,7 @@ Run the tests with `php artisan test`.
 | **M4** | Reconciliation engine — turnaround, deliver-anyway workflow, PO completion | ✅ Done |
 | **M5** | Core screens with self-serve filters, group-by and export | ✅ Done |
 | **M6** | Master grid (Admin + PIN) + net-margin engine — **verified on the real master file** | ✅ Done |
-| M7 | Money views — **checkpoint** | ⬜ |
+| **M7** | Money views — PO & SKU P&L, Admin + PIN — **checkpoint, verified on the real PO** | ✅ Done |
 | M8 | Noon channel | ⬜ |
 | M9 | DFS + sell-out feeds | ⬜ |
 | M10 | Users, server-side enforcement, final verification | ⬜ |
@@ -1007,9 +1007,9 @@ Full suite: **204 passing**.
 
 ---
 
-## 12b. What M7 needs next
+## 12b. What M7 needed — delivered, see §12c
 
-The engine is done; M7 is the money views it feeds (§S) — **a checkpoint milestone**:
+The engine was done at M6; M7 is the money views it feeds (§S) — **a checkpoint milestone**:
 
 - **PO-level net P&L**, per PO and rolled up. `NetMarginEngine::forPurchaseOrder()` already
   returns it. The screen's job is to **show coverage next to every total** — a profit
@@ -1035,6 +1035,113 @@ constructed data:
 | The order date for PO `6QT4G44D` | The first real turnaround figure (§8.6) |
 | ~~The master sheet~~ | **Supplied and loaded at M6** |
 | A Noon PO + picking list | M8, and the NIN side of the catalog M6 just loaded |
+
+---
+
+## 12c. M7 — Money views (done, verified on the real PO)
+
+**CHECKPOINT.** 240 tests passing, 951 assertions — 207 from M6 all still green, plus 36
+new. Full write-up in `M7_SUMMARY.md`.
+
+M7 is **views over M6's engine, not a second calculation.** `NetMarginEngine` remains the
+only thing in the app that works out a margin; no screen does arithmetic of its own. A
+figure here disagreeing with the same figure on the master grid would make the app worth
+less than the spreadsheet it replaces.
+
+### 12c.1 What was built
+
+| Piece | Where |
+|---|---|
+| PO-level P&L statement | `App\Services\Margin\ProfitAndLoss` |
+| SKU-level margin + the revenue-weighted blend | `App\Services\Margin\SkuMargin` |
+| Itemised cost stack on the engine's PO result | `NetMarginEngine::costStack()`, `cost_breakdown` |
+| The one place that answers "may they see profit now?" | `App\Support\MoneyGate` |
+| Sliding idle window on the PIN | `App\Http\Middleware\TouchMoneyPinSession` |
+| The Profitability section | `/money`, `/money/po/{po}` — `MoneyController` |
+| Statement component | `resources/views/components/pnl.blade.php`, `.pnl` in `operon.css` |
+
+### 12c.2 The real PO, reproduced
+
+`operon:verify-samples` prints the statement and checks it against M6's validated figures:
+
+```
+✓ Invoiced (billed)          223,511.20     ✓ Net profit    31,537.69
+✓ Net receivable             173,937.19     ✓ MARGIN %          18.13
+✓ Our cost                   142,399.50     ✓ Lines costed         85
+✓ Cost lines total the cost  142,399.50
+```
+
+The last line is the property that makes a statement worth printing: its lines add up to
+its bottom line. The itemised deductions are accumulated in the same loop as the total and
+rounded before being totalled, so what a person adds up on screen is what is printed
+underneath, to the fils.
+
+### 12c.3 "Both" is revenue-weighted — the rule, and why it is not pedantry
+
+```
+Σ (weight × profit)  ÷  Σ (weight × net receivable)
+```
+
+The weights **are** the revenues, so this is the revenue-weighted mean by construction. On
+the real catalog it gives **18.23%** where a simple mean of the SKU percentages would say
+**18.82%**. On a single SKU the gap can be far wider: 30% on 100 units of Amazon and 5% on
+one unit of Noon is **29.75%**, not the 17.5% a simple mean reports — the difference
+between a product that is doing fine and one on the chopping block.
+
+**Unit costs blend over units, not over money** (§S's own caveat): a cost per unit weighted
+by revenue would flatter whichever channel charges the most.
+
+**The weight is recorded revenue** — units shipped × what we bank per unit. A SKU with
+nothing shipped on the channels in view falls back to one unit of each channel, which is
+still a revenue weighting, and **every row states which basis it used**. Noon volumes
+arrive at M8 and DFS at M9, so today only the Amazon Retail side of a blend can carry
+shipped units, and the screen says so.
+
+### 12c.4 The gate, in one place
+
+`MoneyGate` replaced the checks that were being re-derived at each call site.
+
+- **Order value** — units × the marketplace's own unit price. How **big** the order is.
+  Every role, no PIN (unchanged since M5).
+- **Margin** — cost, profit, margin %. What we **make** on it. `view-margin` **and** the
+  PIN, every time.
+
+The PIN is on the Profitability routes, where there is nothing but money, and **not** on PO
+detail or Products, where §O grants the screen to roles holding no money permission at all
+— a PIN prompt there would take a screen away to protect columns those roles would never be
+shown. Those screens ask `MoneyGate` and render fewer columns. The unlock prompt is offered
+only to someone holding `view-margin`: a padlock you have no key to is noise, not security.
+
+### 12c.5 Unlock-for-the-session
+
+`money_pin_timeout` is now **15** minutes (was 30), and the window slides on **any**
+authenticated request rather than only on the money routes. Before M7 that made it a
+timeout on money-screen activity rather than on activity: unlock, spend twenty minutes on
+Fulfilment, come back to PO detail and the columns are silently gone. What the timeout
+guards against is an unattended screen, and someone clicking around the app is not that.
+Touching an already-lapsed session does not revive it.
+
+A **"Money showing"** pill sits in the header of every screen while unlocked, one click to
+lock, because that question has to be answerable at a glance now that money appears on
+shared screens.
+
+### 12c.6 The one place the brief and the data disagreed
+
+The brief expected Marketing / OPEX / Packaging to read 0, tagged *"until data added"*.
+**They do not.** 1,797 of 1,978 channel rows carry a marketing figure and 1,928 carry OPEX,
+and both are already inside the COGS that produced M6's 18.13% — so printing them as zero
+would have been the fake number the instruction was guarding against.
+
+The tag is therefore **data-driven**: a line reads 0 and is tagged only where the sheet
+genuinely has no figure. A test adds a marketing figure and asserts the line fills in with
+no code change, which is the "no rework later" the brief asked for.
+
+### 12c.7 Caps, stated rather than silent
+
+The SKU table draws the **200 worst margins**. Every matching SKU is still costed — that is
+the only way to know which those are — so the KPIs cover all of them and the screen says
+what it cut, with a link to the CSV that carries the lot. A cap nobody is told about reads
+as "this is all of them", which is the one thing a profitability screen must never imply.
 
 ---
 

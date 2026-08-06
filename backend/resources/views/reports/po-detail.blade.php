@@ -1,9 +1,27 @@
 @php
+    use App\Services\Margin\NetMarginEngine;
     use App\Services\Reporting\FilterSet;
+    use App\Support\Currency;
 
+    // Two different questions, two different gates (§Profitability, M7).
+    //   $showValue     how BIG the order is - open to every role, no PIN
+    //   $canSeeMargin  what we MAKE on it   - view-margin AND the PIN
     $showValue = auth()->user()->canSeeOrderValue();
     $days = $order->turnaroundDays();
     $late = $order->isBreachingBenchmark();
+
+    // Per-unit cost for a line, so the extra columns can be filled in without asking the
+    // engine a second time for figures it has already produced for the panel above.
+    $costOf = function ($line) {
+        $marketplace = $line->marketplace instanceof BackedEnum
+            ? $line->marketplace->value : (string) $line->marketplace;
+
+        $economics = $line->product
+            ? NetMarginEngine::economicsForPo($line->product, $marketplace)
+            : null;
+
+        return $economics ? NetMarginEngine::poCostPerUnit($economics) : null;
+    };
 @endphp
 
 <x-operon-page title="PO {{ $order->po_number }}">
@@ -59,6 +77,30 @@
                     </p>
                 @endif
             </div>
+
+            {{--
+                The money, inline (§Profitability, M7).
+
+                Shown here as well as in the Profitability section because this is where
+                someone already is when the question occurs to them — having to go and
+                find the same PO on another screen to learn what it made is exactly the
+                friction the brief is against. The full statement is one click away.
+            --}}
+            <x-margin-lock inline>Margin and profit on this PO</x-margin-lock>
+
+            @if ($canSeeMargin)
+                <div class="panel">
+                    <div class="ph">
+                        <div>
+                            <h2>Net P&amp;L</h2>
+                            <div class="sub">What this order made, after the marketplace's cut and our own costs</div>
+                        </div>
+                        <a class="link" href="{{ route('money.po', $order->po_number) }}">Full statement →</a>
+                    </div>
+
+                    <x-pnl :statement="$pnl" compact />
+                </div>
+            @endif
 
             {{-- Every ASN this PO went into, with its own date and units (§L). --}}
             <div class="panel scroll-x">
@@ -137,6 +179,11 @@
                             <th class="py-2 pe-4 text-right">Shipped</th>
                             <th class="py-2 pe-4 text-right">Not booked</th>
                             <th class="py-2 pe-4 text-right">Fill %</th>
+                            @if ($showValue)<th class="py-2 pe-4 text-right">Order value</th>@endif
+                            @if ($canSeeMargin)
+                                <th class="py-2 pe-4 text-right">Cost / unit</th>
+                                <th class="py-2 pe-4 text-right">Line cost</th>
+                            @endif
                             <th class="py-2">State</th>
                         </tr>
                     </thead>
@@ -157,6 +204,29 @@
                                 <td class="py-2 pe-4 text-right">
                                     {{ $line->fill_rate_pct === null ? '—' : round((float) $line->fill_rate_pct, 1) . '%' }}
                                 </td>
+
+                                {{-- Order value: how big the line is. Every role, no PIN. --}}
+                                @if ($showValue)
+                                    <td class="py-2 pe-4 text-right">
+                                        {{ Currency::plain($line->qty_shipped * (float) $line->unit_cost, $line->currency) }}
+                                    </td>
+                                @endif
+
+                                {{-- What it costs us: Admin, PIN in. --}}
+                                @if ($canSeeMargin)
+                                    @php($perUnit = $costOf($line))
+                                    <td class="py-2 pe-4 text-right">
+                                        @if ($perUnit === null)
+                                            <span class="tag warn" title="This SKU is not in the master catalog, so it has no cost">no cost</span>
+                                        @else
+                                            {{ Currency::plain($perUnit, $line->currency) }}
+                                        @endif
+                                    </td>
+                                    <td class="py-2 pe-4 text-right">
+                                        {{ $perUnit === null ? '—' : Currency::plain($line->qty_shipped * $perUnit, $line->currency) }}
+                                    </td>
+                                @endif
+
                                 <td class="py-2">
                                     {{ FilterSet::lineStates()[$line->line_state] ?? $line->line_state }}
                                     @if($line->has_chargeback_flag)
@@ -172,9 +242,12 @@
                     <p class="text-xs mt-4" style="color:var(--faint)">
                         Marketplace value of what has shipped:
                         <strong><x-money :amount="$lines->sum(fn ($l) => $l->qty_shipped * (float) $l->unit_cost)"
-                                         :currency="\App\Support\Currency::single($lines->pluck('currency'))"
-                                         :mixed="\App\Support\Currency::single($lines->pluck('currency')) === null" /></strong>.
-                        Margin and profitability are Admin-only and behind the PIN.
+                                         :currency="Currency::single($lines->pluck('currency'))"
+                                         :mixed="Currency::single($lines->pluck('currency')) === null" /></strong>.
+                        @unless ($canSeeMargin)
+                            That is the size of the order, not what we made on it — margin and profitability
+                            are Admin-only and behind the PIN.
+                        @endunless
                     </p>
                 @endif
             </div>

@@ -169,20 +169,49 @@ class NetMarginEngine
      */
     public static function cogs(ProductChannelEconomics $e): ?float
     {
+        $stack = self::costStack($e);
+
+        return $stack === null ? null : round(array_sum($stack), 4);
+    }
+
+    /**
+     * The cost stack, itemised — the same figures COGS adds up, kept apart (§Profitability).
+     *
+     * M7's P&L wants "revenue − product cost − marketing − OPEX − packaging = net", with
+     * each deduction on its own line. Those lines are THESE keys, in this order, and COGS
+     * is defined as their sum rather than computed alongside them: a statement whose lines
+     * do not add up to its total is worse than one with no lines at all.
+     *
+     * Anything reading zero here is a spend the master sheet has not recorded yet, not a
+     * spend of zero, and the P&L labels it that way (`ProfitAndLoss::UNTIL_DATA_ADDED`).
+     * When the figure arrives in the sheet it appears on the line that is already there,
+     * with no code change.
+     *
+     * @return array<string, float>|null  null when there is no product cost at all
+     */
+    public static function costStack(ProductChannelEconomics $e): ?array
+    {
         $productCost = $e->product_cost ?? $e->product?->product_cost;
 
+        // A missing PRODUCT COST is a fact we do not have, so there is no cost stack. A
+        // missing marketing or packaging figure is a spend we did not make: zero.
         if ($productCost === null) {
             return null;
         }
 
-        return round(
-            (float) $productCost
-            + (float) ($e->marketing ?? 0)
-            + (float) ($e->opex ?? 0)
-            + (float) ($e->packaging ?? 0)
-            + (float) ($e->other_misc ?? 0),
-            4
-        );
+        return [
+            'product_cost' => (float) $productCost,
+            'marketing' => (float) ($e->marketing ?? 0),
+            'opex' => (float) ($e->opex ?? 0),
+            'packaging' => (float) ($e->packaging ?? 0),
+            'other_misc' => (float) ($e->other_misc ?? 0),
+        ];
+    }
+
+    /** The cost-stack lines, in P&L order. */
+    public static function costComponents(): array
+    {
+        return ['product_cost', 'marketing', 'opex', 'packaging', 'other_misc'];
     }
 
     /** Recompute and persist one row. Returns the row for chaining. */
@@ -282,8 +311,14 @@ class NetMarginEngine
         $costed = 0;
         $uncosted = 0;
         $uncostedUnits = 0;
+        $costedUnits = 0;
         $currencies = [];
         $backRates = [];
+
+        // The itemised deductions, accumulated beside the total they make up rather than
+        // recomputed afterwards - which is the only way the P&L's lines can be trusted to
+        // add up to its bottom line.
+        $breakdown = array_fill_keys(self::costComponents(), 0.0);
 
         foreach ($po->lines()->with('product.economics')->get() as $line) {
             $units = (int) $line->qty_shipped;
@@ -304,7 +339,8 @@ class NetMarginEngine
                 ? self::economicsForPo($line->product, $marketplace)
                 : null;
 
-            $perUnit = $economics ? self::poCostPerUnit($economics) : null;
+            $stack = $economics ? self::costStack($economics) : null;
+            $perUnit = $stack === null ? null : round(array_sum($stack), 4);
 
             if ($perUnit === null) {
                 $uncosted++;
@@ -320,9 +356,20 @@ class NetMarginEngine
 
             $costedInvoice += $lineInvoice;
             $netReceivable += $lineInvoice * $backRate;
-            $cost += $units * $perUnit;
+            $costedUnits += $units;
             $costed++;
+
+            foreach ($stack as $component => $perUnitAmount) {
+                $breakdown[$component] += $units * $perUnitAmount;
+            }
         }
+
+        // Round the itemised lines first and total THEM, so the deductions a person adds
+        // up on the P&L make the total printed underneath, to the fils. Totalling
+        // separately and rounding afterwards can leave the two a fils apart, and a
+        // statement that does not add up is not believed - correctly.
+        $breakdown = array_map(fn (float $v) => round($v, 2), $breakdown);
+        $cost = array_sum($breakdown);
 
         $profit = $netReceivable - $cost;
 
@@ -333,6 +380,9 @@ class NetMarginEngine
             'invoice_costed' => round($costedInvoice, 2),
             'net_receivable' => $costed > 0 ? round($netReceivable, 2) : null,
             'cost' => round($cost, 2),
+            // The same total, itemised, for the P&L statement (§Profitability).
+            'cost_breakdown' => $breakdown,
+            'units_costed' => $costedUnits,
             'profit' => $costed > 0 ? round($profit, 2) : null,
             // Margin is against what we BANK, not what we billed - the honest denominator.
             'margin_pct' => ($costed > 0 && $netReceivable > 0)

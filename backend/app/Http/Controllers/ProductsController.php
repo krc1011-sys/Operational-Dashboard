@@ -5,10 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\PoLine;
 use App\Models\Product;
 use App\Models\SelloutRow;
+use App\Services\Margin\SkuMargin;
 use App\Services\Reporting\CsvExport;
 use App\Services\Reporting\FilterSet;
 use App\Services\Reporting\FulfilmentQuery;
 use App\Support\Currency;
+use App\Support\MoneyGate;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -48,8 +50,20 @@ class ProductsController extends Controller
 
         $skus = $this->skuRows($filters);
 
+        /*
+         * The M7 inline unlock (§Profitability).
+         *
+         * Same rule as PO detail: the PIN is not on this route, because §O opens Products
+         * to roles holding no money permission. Unlocking simply adds three columns and
+         * the profitable/losing verdict to the SKU table. Sell-in - units x the
+         * marketplace's price - is order value and stays open to everyone.
+         */
+        $canSeeMargin = MoneyGate::canSeeMargin();
+
         return view('reports.products', [
             'filters' => $filters,
+            'canSeeMargin' => $canSeeMargin,
+            'margins' => $canSeeMargin ? $this->marginsFor($skus) : collect(),
             'totals' => $engine->totals(),
             'brands' => $engine->grouped(FilterSet::GROUP_BRAND),
             'categories' => $engine->grouped(FilterSet::GROUP_CATEGORY),
@@ -82,6 +96,7 @@ class ProductsController extends Controller
             ->leftJoin('products', 'po_lines.product_id', '=', 'products.id')
             ->selectRaw('
                 po_lines.sku_id,
+                MAX(po_lines.product_id) as product_id,
                 MAX(po_lines.title) as title,
                 MAX(products.brand) as brand,
                 MAX(products.category) as category,
@@ -102,6 +117,7 @@ class ProductsController extends Controller
             ->get()
             ->map(fn ($row) => [
                 'sku_id' => $row->sku_id,
+                'product_id' => $row->product_id === null ? null : (int) $row->product_id,
                 'title' => $row->title,
                 'brand' => $row->brand,
                 'category' => $row->category,
@@ -116,6 +132,24 @@ class ProductsController extends Controller
                 'fill_rate' => $row->accepted > 0
                     ? round((int) $row->shipped / (int) $row->accepted * 100, 1) : null,
             ]);
+    }
+
+    /**
+     * Blended net margin for the SKUs on screen, keyed by sku_id (§Profitability, M7).
+     *
+     * Read through SkuMargin rather than reimplemented, so the margin on this tab and the
+     * margin on the Profitability tab are the same number produced by the same code. It
+     * is the revenue-weighted blend across every channel a product sells on — never a
+     * simple average of the channel percentages.
+     *
+     * A SKU with no catalog product simply has no entry, and the column shows why.
+     */
+    private function marginsFor($skus)
+    {
+        $blends = SkuMargin::blendsForProducts($skus->pluck('product_id')->all());
+
+        return $skus->filter(fn ($s) => $s['product_id'] !== null && $blends->has($s['product_id']))
+            ->mapWithKeys(fn ($s) => [$s['sku_id'] => $blends[$s['product_id']]]);
     }
 
     /**

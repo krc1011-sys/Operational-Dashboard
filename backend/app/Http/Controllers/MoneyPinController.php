@@ -2,10 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Middleware\EnsureMoneyPinVerified;
+use App\Support\MoneyGate;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -45,16 +44,25 @@ class MoneyPinController extends Controller
 
         RateLimiter::clear($key);
 
-        $request->session()->put(EnsureMoneyPinVerified::SESSION_KEY, Carbon::now()->timestamp);
+        MoneyGate::unlock();
 
-        return redirect()->intended(route('dashboard'));
+        return redirect()->intended(route('money.index'))->with('status',
+            'Money figures unlocked. They stay visible while you are working, and lock again '
+            .'after '.MoneyGate::timeoutMinutes().' idle minutes or when you log out.');
     }
 
-    /** Manually lock the money screens again without logging out. */
+    /**
+     * Manually lock the money screens again without logging out.
+     *
+     * Returns to where you were rather than to the dashboard: locking is something you do
+     * because someone walked up to your desk, and being thrown off the screen as well
+     * would be a second, unasked-for thing happening at the worst moment.
+     */
     public function destroy(Request $request): RedirectResponse
     {
-        $request->session()->forget(EnsureMoneyPinVerified::SESSION_KEY);
+        MoneyGate::lock();
 
-        return redirect()->route('dashboard')->with('status', 'Money screens locked.');
+        return back(fallback: route('dashboard'))
+            ->with('status', 'Money figures locked. Enter the PIN again to show them.');
     }
 }

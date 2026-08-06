@@ -206,6 +206,19 @@
         </x-panel>
     </section>
 
+    <x-margin-lock inline>Cost, profit and margin per SKU</x-margin-lock>
+
+    @if ($canSeeMargin)
+        <div class="note">
+            <b>Margin here is the revenue-weighted blend</b> across every channel a product sells on — the
+            same figure, from the same engine, as the Profitability tab, never a simple average of the
+            channel percentages. Per-channel detail and the Amazon / Noon / Both selector are
+            <a class="link" href="{{ route('money.index', ['view' => 'sku']) }}">on Profitability → By SKU</a>.
+            <b>Sell-in</b> beside it is order value — how much we sold, not what we made — and stays visible
+            to everyone.
+        </div>
+    @endif
+
     <x-panel flush title="Every SKU" sub="Ordered, shipped and what is still owed — biggest sell-in first">
         <div class="scroll-x">
             <table class="tbl">
@@ -220,6 +233,13 @@
                         <th class="num">Shipped</th>
                         <th>Fill rate</th>
                         @if ($showValue)<th class="num">Sell-in</th>@endif
+                        {{-- The M7 inline unlock: what we MAKE, beside how much we sold. --}}
+                        @if ($canSeeMargin)
+                            <th class="num">Cost / unit</th>
+                            <th class="num">Profit / unit</th>
+                            <th class="num">Margin</th>
+                            <th>Verdict</th>
+                        @endif
                     </tr>
                 </thead>
                 <tbody>
@@ -245,9 +265,43 @@
                             @if ($showValue)
                                 <td class="num">{{ Currency::plain($sku['sell_in'], $sku['currency']) }}</td>
                             @endif
+
+                            @if ($canSeeMargin)
+                                @php($m = $margins[$sku['sku_id']] ?? null)
+                                <td class="num">
+                                    {{ $m && $m['blend']['cogs'] !== null ? Currency::plain($m['blend']['cogs'], $m['currency']) : '—' }}
+                                </td>
+                                <td class="num">
+                                    @if ($m && $m['blend']['profit'] !== null)
+                                        <span class="mg {{ $m['blend']['profit'] >= 0 ? 'pos' : 'neg' }}">
+                                            {{ Currency::plain($m['blend']['profit'], $m['currency']) }}
+                                        </span>
+                                    @else
+                                        <span style="color:var(--faint)">—</span>
+                                    @endif
+                                </td>
+                                <td class="num">
+                                    @if ($m && $m['blend']['margin_pct'] !== null)
+                                        <span class="mg {{ $m['blend']['margin_pct'] >= 0 ? 'pos' : 'neg' }}">{{ $m['blend']['margin_pct'] }}%</span>
+                                    @else
+                                        <span class="mg unk">—</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    @if ($m === null)
+                                        <span class="tag" title="This SKU is not linked to a catalog product, so it has no economics">not in the catalog</span>
+                                    @elseif ($m['profitable'] === null)
+                                        <span class="tag" title="No selling price, so there is no margin to judge">no verdict</span>
+                                    @elseif ($m['profitable'])
+                                        <span class="tag good">profitable</span>
+                                    @else
+                                        <span class="tag bad">losing money</span>
+                                    @endif
+                                </td>
+                            @endif
                         </tr>
                     @empty
-                        <tr><td colspan="9" class="empty">No SKUs match these filters.</td></tr>
+                        <tr><td colspan="13" class="empty">No SKUs match these filters.</td></tr>
                     @endforelse
                 </tbody>
             </table>

@@ -2,32 +2,38 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\MoneyGate;
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Second factor for money screens (blueprint §S: "money = ADMIN ONLY, behind PIN/password").
  *
- * Role permissions decide WHO may see cost/price/margin. This middleware adds a
- * short-lived PIN confirmation on top, so an unattended logged-in session cannot
- * expose P&L. Apply it alongside the permission middleware, e.g.
+ * Role permissions decide WHO may see cost/price/margin. This middleware adds the PIN
+ * confirmation on top for routes that exist ONLY to show money — the Profitability
+ * section, and every master-grid write. Apply it alongside the permission middleware:
  *
  *     Route::middleware(['auth', 'permission:view-margin', 'money.pin'])
  *
- * The verification is stored in the session and expires after
- * config('operon.money_pin_timeout') minutes.
+ * It is NOT how the inline money columns added at M7 are protected. Those live on screens
+ * open to roles holding no money permission at all, so putting the PIN on their routes
+ * would bounce people off a screen §O grants them. They ask MoneyGate and render fewer
+ * columns instead.
+ *
+ * The state itself — unlock, idle window, lock — belongs to MoneyGate. This class is the
+ * door; MoneyGate is the lock.
  */
 class EnsureMoneyPinVerified
 {
-    public const SESSION_KEY = 'operon.money_pin_verified_at';
+    /** Kept as the canonical name for existing call sites; the value lives in MoneyGate. */
+    public const SESSION_KEY = MoneyGate::SESSION_KEY;
 
     public function handle(Request $request, Closure $next): Response
     {
-        if ($this->verified($request)) {
+        if (MoneyGate::unlocked()) {
             // Sliding window: activity on a money screen keeps the PIN alive.
-            $request->session()->put(self::SESSION_KEY, Carbon::now()->timestamp);
+            MoneyGate::touch();
 
             return $next($request);
         }
@@ -39,16 +45,8 @@ class EnsureMoneyPinVerified
     }
 
     /** Has this session entered the PIN recently enough? */
-    public static function verified(Request $request): bool
+    public static function verified(?Request $request = null): bool
     {
-        $verifiedAt = $request->session()->get(self::SESSION_KEY);
-
-        if (! $verifiedAt) {
-            return false;
-        }
-
-        $timeout = max(1, (int) config('operon.money_pin_timeout'));
-
-        return Carbon::createFromTimestamp($verifiedAt)->addMinutes($timeout)->isFuture();
+        return MoneyGate::unlocked();
     }
 }

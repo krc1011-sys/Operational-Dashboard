@@ -39,8 +39,16 @@ return [
     */
     'money_pin' => env('OPERON_MONEY_PIN', '1234'),
 
-    // How long a verified PIN stays valid, in minutes, before it is asked for again.
-    'money_pin_timeout' => (int) env('OPERON_MONEY_PIN_TIMEOUT', 30),
+    /*
+     | How long a verified PIN stays valid, in minutes of IDLE time.
+     |
+     | Unlock-for-the-session (§Profitability, M7): entered once, it stays in until logout
+     | or until nothing happens for this long. The window slides on any authenticated
+     | request, not only on the money screens - see TouchMoneyPinSession - because the
+     | thing being protected against is an unattended screen, and someone working in
+     | another tab of the app is not that.
+     */
+    'money_pin_timeout' => (int) env('OPERON_MONEY_PIN_TIMEOUT', 15),
 
     // How many wrong PIN attempts are allowed before a temporary lockout.
     'money_pin_max_attempts' => (int) env('OPERON_MONEY_PIN_MAX_ATTEMPTS', 5),
