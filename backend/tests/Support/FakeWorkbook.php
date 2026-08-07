@@ -188,6 +188,205 @@ class FakeWorkbook
             ->sheet('Picking List', $picking);
     }
 
+    // ═══ M9 — sell-out and stock (§P, §R) ═══════════════════════════════════
+
+    /**
+     * The Amazon sell-out report: a metadata BANNER on row 1, the header on row 2.
+     *
+     * The banner is the point of this fixture. It is where the reporting window comes
+     * from, and the window is the denominator of Amazon's run rate — so a test that
+     * skipped it would not be testing the file we actually receive. Its dates are
+     * dd/mm/yyyy, which is the format that silently misreads as m/d/Y.
+     *
+     * @param  array<int, array{0:string,1:string,2:float,3:float,4:int,5:int}>  $rows
+     *                                                                                  [asin, title, shipped revenue, shipped COGS, units, returns]
+     */
+    public static function amazonSellout(
+        ?array $rows = null,
+        string $from = '01/06/2026',
+        string $to = '05/08/2026',
+        string $reportUpdated = '05/08/2026',
+    ): self {
+        $rows ??= [
+            ['B08TEST0001', 'Test product 1', 9310.50, 9800.00, 400, 4],
+            ['B08TEST0002', 'Test product 2', 2140.00, 2200.00, 100, 0],
+        ];
+
+        $sheet = [[
+            'Program=[Retail]', 'Distributor View=[Sourcing]', 'View By=[ASIN]',
+            'Countries=[AE]', 'Businesses=[Brands Dynamo LLC_AE]', 'Locale=[en_AE]',
+            'Currency=[AED]', 'Reporting Range=[Custom]',
+            "Viewing Range=[{$from} - {$to}]", "Report Updated=[{$reportUpdated}]",
+        ], [
+            'ASIN', 'Product Title', 'Brand', 'Shipped Revenue', 'Shipped COGS',
+            'Shipped Units', 'Customer Returns',
+        ]];
+
+        foreach ($rows as [$asin, $title, $revenue, $cogs, $units, $returns]) {
+            $sheet[] = [$asin, $title, 'TestBrand', $revenue, $cogs, $units, $returns];
+        }
+
+        return (new self)->sheet('Sheet0', $sheet);
+    }
+
+    /**
+     * The Amazon inventory report — same banner-then-header shape, different columns.
+     *
+     * `Receive Fill %` and `Vendor Confirmation %` are written as FRACTIONS here because
+     * that is how Amazon writes them (0.1636 meaning 16.36%), and the importer's job is
+     * to turn them into percentages exactly once.
+     *
+     * @param  array<int, array{0:string,1:int,2:int,3:int,4:int}>  $rows
+     *                                                                     [asin, sellable SOH units, aged 90+ units, open PO qty, net received units]
+     */
+    public static function amazonInventory(?array $rows = null, string $reportUpdated = '05/08/2026'): self
+    {
+        $rows ??= [
+            ['B08TEST0001', 1200, 0, 500, 2000],
+            ['B08TEST0002', 60, 40, 0, 300],
+        ];
+
+        $sheet = [[
+            'Program=[Retail]', 'View By=[ASIN]', 'Currency=[AED]',
+            'Viewing Range=[01/06/2026 - 05/08/2026]', "Report Updated=[{$reportUpdated}]",
+        ], [
+            'ASIN', 'Product Title', 'Brand', 'Vendor Confirmation %', 'Net Received',
+            'Net Received Units', 'Open Purchase Order Quantity', 'Receive Fill %',
+            'Overall Vendor Lead Time (days)', 'Aged 90+ Days Sellable Inventory',
+            'Aged 90+ Days Sellable Units', 'Sellable On Hand Inventory',
+            'Sellable On Hand Units', 'Unsellable On Hand Units',
+        ]];
+
+        foreach ($rows as [$asin, $soh, $aged, $openPo, $received]) {
+            $sheet[] = [$asin, 'Test product', 'TestBrand', 1, $received * 15.0, $received,
+                $openPo, 0.1636, 17.44, $aged * 12.0, $aged, $soh * 15.0, $soh, 0];
+        }
+
+        return (new self)->sheet('Sheet0', $sheet);
+    }
+
+    /**
+     * DFS orders — transaction level, with EXCEL-SERIAL invoice dates.
+     *
+     * 46204 is 1 Jul 2026. The serials are passed as raw numbers rather than date strings
+     * precisely because that is what the real file holds, and reading them as text is one
+     * of the two date traps M9 had to survive (the other is the banner's dd/mm/yyyy).
+     *
+     * @param  array<int, array{0:string,1:string,2:int,3:int,4:float}>  $rows
+     *                                                                          [order id, asin, date serial, qty, amount]
+     */
+    public static function dfsSales(?array $rows = null): self
+    {
+        $rows ??= [
+            ['ORDER0001', 'B08TEST0001', 46204, 2, 85.80],
+            ['ORDER0002', 'B08TEST0001', 46205, 1, 42.90],
+            ['ORDER0003', 'B08TEST0002', 46205, 3, 64.29],
+        ];
+
+        $sheet = [[
+            'order id', 'Invoice number provided to Amazon', 'Invoice date', 'ASIN',
+            'SKU', 'Item Description', 'QTY', 'Invoice amount',
+        ]];
+
+        foreach ($rows as $index => [$orderId, $asin, $serial, $qty, $amount]) {
+            $sheet[] = [$orderId, 'BD-DFS-'.(56391 + $index), $serial, $asin,
+                '726208185249', 'Test product', $qty, $amount];
+        }
+
+        return (new self)->sheet('Sheet1', $sheet);
+    }
+
+    /**
+     * The Noon sell-out workbook: three tabs that only answer the question together.
+     *
+     * "Sellout L60" is keyed by BARCODE and "SOH" by NIN; "Barcodes" is the map between
+     * them, and without it Noon stock and Noon velocity cannot land on the same row. The
+     * fixture deliberately includes a sell-out barcode that the map does NOT cover, so the
+     * unmapped path is exercised rather than assumed.
+     *
+     * @param  array<int, array{0:int,1:string,2:int,3:float}>  $sellOut  [date serial, barcode, units, gmv]
+     * @param  array<int, array{0:string,1:int,2:float,3:string}>  $soh  [nin, stock, L7_DRR, barcode]
+     * @param  array<string, string>  $barcodeMap  barcode => NIN
+     */
+    public static function noonSellout(
+        ?array $sellOut = null,
+        ?array $soh = null,
+        ?array $barcodeMap = null,
+    ): self {
+        $sellOut ??= [
+            [46239, '7798013470011', 2, 45.70],
+            [46239, '782003665294', 4, 28.00],
+            [46238, '7798013470011', 3, 68.55],
+            // Not in the Barcodes map — must still be stored, keyed on its barcode.
+            [46238, '9990000000001', 1, 10.00],
+        ];
+
+        $soh ??= [
+            ['Z00A34B562298A159D103Z-1', 2875, 32.428571, '7798013470011'],
+            ['Z6C8728C3B3E53C1162C0Z-1', 749, 12.857143, '782003665294'],
+        ];
+
+        $barcodeMap ??= [
+            '7798013470011' => 'Z00A34B562298A159D103Z-1',
+            '782003665294' => 'Z6C8728C3B3E53C1162C0Z-1',
+        ];
+
+        $selloutTab = [['order_pdate', 'pbarcode_canonical', 'brand_code', 'product_title', 'units_sold', 'GMV']];
+
+        foreach ($sellOut as [$serial, $barcode, $units, $gmv]) {
+            $selloutTab[] = [$serial, $barcode, 'test_brand', 'Test product', $units, $gmv];
+        }
+
+        $sohTab = [['sku', 'psku', 'title_en', 'brand_code', 'psku_stock', 'L7_DRR', 'barcode']];
+
+        foreach ($soh as [$nin, $stock, $drr, $barcode]) {
+            $sohTab[] = [$nin, 'R040784827AEM', 'Test product', 'test_brand', $stock, $drr, $barcode];
+        }
+
+        // The tab's own spelling, complete with the apostrophes Noon uses.
+        $barcodesTab = [['ZSKU', "Barcode w/o '0'"]];
+
+        foreach ($barcodeMap as $barcode => $nin) {
+            $barcodesTab[] = [$nin, (string) $barcode];
+        }
+
+        return (new self)
+            ->sheet('Sellout L60', $selloutTab)
+            ->sheet('SOH', $sohTab)
+            ->sheet('Barcodes', $barcodesTab);
+    }
+
+    /**
+     * The DFS inventory CSV — the only non-Excel file in the system.
+     *
+     * Written as raw text rather than through PhpSpreadsheet, because the thing being
+     * tested IS the raw text: the identifier columns arrive wrapped as Excel text
+     * formulas, ="0726208185355", and a writer would quote them differently.
+     *
+     * @param  array<int, array{0:string,1:string,2:int}>  $rows  [asin, barcode, available units]
+     */
+    public static function dfsInventoryCsv(?array $rows = null): string
+    {
+        $rows ??= [
+            ['B08TEST0001', '726208185355', 300],
+            ['B08TEST0002', '797725765962', 0],
+        ];
+
+        $lines = ['SKU,UPC,ASIN,Title,Warehouse,Warehouse name,Available units,Status'];
+
+        foreach ($rows as [$asin, $barcode, $available]) {
+            $lines[] = sprintf(
+                '"=""0%s""","=""%s""",%s,"Test product",FDOX,"BD Warehouse",%d,ACTIVE',
+                $barcode, $barcode, $asin, $available
+            );
+        }
+
+        $path = tempnam(sys_get_temp_dir(), 'operon_test_').'.csv';
+        file_put_contents($path, implode("\n", $lines)."\n");
+
+        return $path;
+    }
+
     /** Write to a temp file and return its path. Extension picks the format. */
     public function write(string $extension = 'xlsx'): string
     {

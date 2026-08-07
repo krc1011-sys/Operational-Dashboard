@@ -6,6 +6,9 @@ use App\Enums\SourceFileStatus;
 use App\Enums\UploadType;
 use App\Models\SourceFile;
 use App\Models\User;
+use App\Services\Upload\CancellationTemplate;
+use App\Services\Upload\ImporterRegistry;
+use App\Services\Upload\UploadValidator;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -170,29 +173,31 @@ class UploadFlowTest extends TestCase
     }
 
     /**
-     * File types whose parser is not built yet (Noon, DFS, sell-out, master sheet) still
-     * validate and store, and say plainly that nothing was written.
+     * Every type in the dropdown now has a parser behind it (M9).
+     *
+     * This test used to prove the opposite - that a validated file with NO registered
+     * importer rests at "validated" rather than failing - and it used the sell-out type
+     * as its example. M9 gave sell-out, DFS, both inventory feeds and the Noon workbook
+     * their parsers, and with that the last gap in the §T registry closed, so the old
+     * assertion had nothing left to assert.
+     *
+     * It is inverted rather than deleted, because the inverse is the more useful
+     * guarantee: offering somebody a type in the dropdown that silently writes nothing is
+     * a bug, and this is what catches a future type being added without its importer.
      */
-    public function test_a_type_with_no_parser_yet_rests_at_validated(): void
+    public function test_every_upload_type_in_the_dropdown_has_a_parser(): void
     {
-        $sellout = (new FakeWorkbook)->sheet('Sheet1', [
-            ['Viewing Range: 2026-07-01 to 2026-07-31', 'Currency: AED'],
-            ['ASIN', 'Product Title', 'Brand', 'Shipped Revenue', 'Shipped Units', 'Customer Returns'],
-            ['B08TEST0001', 'Test product', 'TestBrand', 4410.0, 180, 2],
-        ]);
+        $registry = app(ImporterRegistry::class);
 
-        $this->actingAs($this->user('Admin'))->post('/uploads', [
-            'upload_type' => UploadType::AmazonSellout->value,
-            'file' => $this->upload($sellout, 'Sales_ASIN_Sourcing_Retail_x.xlsx'),
-        ]);
+        $missing = collect(UploadType::cases())
+            ->reject(fn (UploadType $type) => $registry->has($type))
+            ->map(fn (UploadType $type) => $type->value)
+            ->values()
+            ->all();
 
-        $file = SourceFile::sole();
-        $this->assertSame(SourceFileStatus::Validated, $file->status);
-
-        $this->actingAs($this->user('Admin'))
-            ->get(route('uploads.show', $file))
-            ->assertOk()
-            ->assertSee('Nothing has been imported yet');
+        $this->assertSame([], $missing,
+            'These upload types are offered in the dropdown but would import nothing: '
+            .implode(', ', $missing));
     }
 
     // --- The cancellations template (§T) ------------------------------------
@@ -209,9 +214,9 @@ class UploadFlowTest extends TestCase
     public function test_the_generated_template_passes_its_own_validation(): void
     {
         $path = $this->tempFiles[] = tempnam(sys_get_temp_dir(), 'operon_tpl_').'.xlsx';
-        (new \App\Services\Upload\CancellationTemplate)->writeTo($path);
+        (new CancellationTemplate)->writeTo($path);
 
-        $result = (new \App\Services\Upload\UploadValidator)
+        $result = (new UploadValidator)
             ->validate($path, UploadType::AmazonCancellations, 'Amazon_Cancellations_TEMPLATE.xlsx');
 
         $this->assertTrue($result->passed, $result->message());

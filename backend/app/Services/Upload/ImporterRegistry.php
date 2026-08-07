@@ -4,11 +4,16 @@ namespace App\Services\Upload;
 
 use App\Enums\UploadType;
 use App\Services\Import\AmazonCancellationImporter;
+use App\Services\Import\AmazonInventoryImporter;
 use App\Services\Import\AmazonPackingListImporter;
 use App\Services\Import\AmazonPoImporter;
+use App\Services\Import\AmazonSelloutImporter;
+use App\Services\Import\DfsInventoryImporter;
+use App\Services\Import\DfsSelloutImporter;
 use App\Services\Import\MasterSheetImporter;
 use App\Services\Import\NoonPickingListImporter;
 use App\Services\Import\NoonPoImporter;
+use App\Services\Import\NoonSelloutImporter;
 
 /**
  * Maps an upload type to the parser that handles it.
@@ -35,7 +40,18 @@ class ImporterRegistry
         UploadType::NoonInterimPicking->value => NoonPickingListImporter::class,
         UploadType::NoonFinalPicking->value => NoonPickingListImporter::class,
 
-        // M9 — DFS and sell-out.
+        /*
+         * M9 — sell-out and stock, on all three channels (§P, §R).
+         *
+         * Note which importer is NOT here twice: Noon's sell-out and Noon's stock arrive
+         * in ONE workbook and are read by one importer, because they only answer the
+         * question - days of cover - together.
+         */
+        UploadType::AmazonSellout->value => AmazonSelloutImporter::class,
+        UploadType::AmazonInventory->value => AmazonInventoryImporter::class,
+        UploadType::AmazonDfs->value => DfsSelloutImporter::class,
+        UploadType::AmazonDfsInventory->value => DfsInventoryImporter::class,
+        UploadType::NoonSellout->value => NoonSelloutImporter::class,
     ];
 
     public function has(UploadType $type): bool

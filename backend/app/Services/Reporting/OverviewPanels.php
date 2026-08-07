@@ -9,12 +9,11 @@ use App\Models\Delivery;
 use App\Models\PoLine;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
-use App\Models\SelloutRow;
 use App\Models\ShipmentLine;
 use App\Models\SourceFile;
+use App\Services\Analytics\SellThroughEngine;
 use App\Support\Currency;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 /**
  * The panels behind the Overview screen (DESIGN_BRIEF §8).
@@ -24,10 +23,12 @@ use Illuminate\Support\Facades\DB;
  * the user chose. A number on this screen and a number in the engine cannot disagree,
  * because this class does not know how to calculate anything the engine does not.
  *
- * Where the data for a panel has not been ingested yet - sell-out arrives at M9 - the
- * panel returns null and the screen says so in a sentence. It never fills the space with
- * a plausible-looking figure, because a made-up number on a dashboard is worse than an
- * empty one: nobody checks a number that looks fine.
+ * Where the data for a panel has not been ingested yet, the panel returns null and the
+ * screen says so in a sentence. It never fills the space with a plausible-looking figure,
+ * because a made-up number on a dashboard is worse than an empty one: nobody checks a
+ * number that looks fine. M9 extends that rule from "no data" to "data that does not
+ * line up" - see the sell-through panel, which withholds a percentage whenever its two
+ * halves cover different days.
  */
 class OverviewPanels
 {
@@ -135,32 +136,80 @@ class OverviewPanels
     }
 
     /**
-     * Sell-in against sell-out (§5 "Sell-through block").
+     * Sell-in against sell-out (§5 "Sell-through block"), live from M9.
      *
-     * Sell-in is what we shipped to the channel — we have that. Sell-out is what the
-     * channel's customers bought, which comes from the Amazon sell-out report and is not
-     * ingested until M9. Until then this returns null and the panel explains why rather
-     * than inventing a ratio, because sell-through is exactly the number somebody would
-     * act on without checking.
+     * READ THROUGH THE ENGINE, NOT RECOMPUTED. The rule about which denominator a
+     * sell-through ratio may use — and when there is no honest one — lives in
+     * SellThroughEngine, and reproducing any part of it here is how the Overview tile
+     * and the Products page would start disagreeing.
+     *
+     * Still returns null when nothing is loaded, so the panel's honest empty state
+     * survives untouched.
      *
      * @return array<string, mixed>|null
      */
     public function sellThrough(): ?array
     {
-        if (SelloutRow::count() === 0) {
+        $engine = new SellThroughEngine($this->filters);
+
+        if (! $engine->hasSellOut()) {
             return null;
         }
 
-        $sellIn = (float) $this->filters->applyToLines(PoLine::query())
-            ->sum(DB::raw('qty_shipped * unit_cost'));
+        $channels = $engine->byChannel()->filter(fn (array $c) => $c['sell_out_units'] > 0)->values();
 
-        $sellOut = (float) SelloutRow::sum('shipped_revenue');
+        /*
+         * The headline is the channels that HAVE an honest ratio, blended on units.
+         * Channels whose windows do not line up are listed underneath with their reason
+         * instead of being folded into an average that would hide the gap.
+         */
+        $comparable = $channels->filter(fn (array $c) => $c['sell_through_pct'] !== null);
+
+        $sellOutUnits = (int) $comparable->sum('sell_out_units');
+        $denominator = (int) $comparable->sum('sell_through_denominator');
 
         return [
-            'sell_in' => $sellIn,
-            'sell_out' => $sellOut,
-            'pct' => $sellIn > 0 ? round($sellOut / $sellIn * 100, 1) : null,
-            'sitting' => max(0, $sellIn - $sellOut),
+            'pct' => $denominator > 0 ? round($sellOutUnits / $denominator * 100, 1) : null,
+            'sell_in_units' => $denominator,
+            'sell_out_units' => (int) $channels->sum('sell_out_units'),
+            'sell_out_revenue' => (float) $channels->sum('sell_out_revenue'),
+            'sitting' => max(0, $denominator - $sellOutUnits),
+            'channels' => $channels,
+            'comparable' => $comparable->count(),
+            'not_comparable' => $channels->filter(fn (array $c) => $c['sell_through_pct'] === null)->values(),
+            'currency' => $channels->first()['currency'] ?? Currency::code(null),
+        ];
+    }
+
+    /**
+     * Stock on hand and how long it lasts, per channel (§P/§R, M9).
+     *
+     * Null until stock is ingested. DFS carries its provisional label all the way here,
+     * because the tile is exactly where somebody would read the number and act on it.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function cover(): ?array
+    {
+        $engine = new SellThroughEngine($this->filters);
+
+        if (! $engine->hasStock()) {
+            return null;
+        }
+
+        $channels = $engine->byChannel()->filter(fn (array $c) => $c['soh_units'] !== null)->values();
+        $rows = $engine->skuRows();
+        $lists = $engine->watchlists($rows);
+
+        return [
+            'channels' => $channels,
+            'soh_units' => (int) $channels->sum('soh_units'),
+            'aged_90_units' => (int) $channels->sum(fn (array $c) => $c['aged_90_units'] ?? 0),
+            'provisional' => $channels->contains(fn (array $c) => $c['stock_is_provisional']),
+            'overstocking' => $lists['overstocking']['all']->count(),
+            'overstocking_units' => $lists['overstocking']['units'],
+            'under_supplying' => $lists['under_supplying']['all']->count(),
+            'thresholds' => $lists['thresholds'],
         ];
     }
 
@@ -238,7 +287,27 @@ class OverviewPanels
             ];
         }
 
-        // 5. Deliveries booked but never finalised.
+        /*
+         * 5. Shipped Noon deliveries with no confirmed delivery date (M9).
+         *
+         * These used to be invisible, because M8 quietly used the upload day and the
+         * turnaround looked answered. It is a real gap now and it is listed as one: the
+         * PO has no turnaround at all until somebody types the date.
+         */
+        $undated = Delivery::awaitingDate()->count();
+
+        if ($undated > 0) {
+            $alerts[] = [
+                'severity' => 'w',
+                'weight' => $undated * 800,
+                'title' => $undated.' shipped deliver'.($undated === 1 ? 'y' : 'ies').' need a delivery date',
+                'detail' => 'Noon supplies only an estimate, so turnaround waits until the real date is entered',
+                'action' => 'Enter it →',
+                'href' => route('deliveries.index', ['view' => 'shipped']),
+            ];
+        }
+
+        // 6. Deliveries booked but never finalised.
         $awaitingFinal = Delivery::awaitingFinal()->count();
 
         if ($awaitingFinal > 0) {
@@ -252,7 +321,7 @@ class OverviewPanels
             ];
         }
 
-        // 6. Packing lines whose PO has not been uploaded yet. Normal during rollout (§K).
+        // 7. Packing lines whose PO has not been uploaded yet. Normal during rollout (§K).
         $unmatched = ShipmentLine::unmatched()->count();
 
         if ($unmatched > 0) {
@@ -266,7 +335,7 @@ class OverviewPanels
             ];
         }
 
-        // 7. Feeds that have gone stale (§J).
+        // 8. Feeds that have gone stale (§J).
         foreach (SourceFile::overdueTypes() as $overdue) {
             $alerts[] = [
                 'severity' => 'w',

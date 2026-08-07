@@ -7,6 +7,8 @@ use App\Models\Delivery;
 use App\Models\PoLine;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
+use App\Services\Spreadsheet\CellValue;
+use App\Services\Spreadsheet\Workbook;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -39,8 +41,11 @@ class FilterSet
     public const MAX_IDENTIFIERS = 5000;
 
     public const GROUP_NONE = 'none';
+
     public const GROUP_SKU = 'sku';
+
     public const GROUP_BRAND = 'brand';
+
     public const GROUP_CATEGORY = 'category';
 
     /**
@@ -195,6 +200,85 @@ class FilterSet
         }
 
         return $query;
+    }
+
+    /**
+     * Narrow a query over sell-out rows (M9).
+     *
+     * The date range means the period the row COVERS, and it is an overlap test rather
+     * than a containment one. That matters because Amazon's sell-out arrives as a single
+     * row spanning its whole reporting window: asking for "July" and testing containment
+     * would drop a row covering June to August entirely, and the screen would report
+     * that Amazon sold nothing.
+     *
+     * @param  Builder<SelloutRow>  $query
+     */
+    public function applyToSellout(Builder $query): Builder
+    {
+        if ($this->channels !== []) {
+            $query->whereIn('channel', array_map(fn (Channel $c) => $c->value, $this->channels));
+        }
+
+        if ($this->skus !== []) {
+            $query->whereIn('sku_id', $this->skus);
+        }
+
+        if ($this->search !== null) {
+            $query->where(fn (Builder $q) => $q
+                ->where('sku_id', 'like', '%'.$this->search.'%')
+                ->orWhere('title', 'like', '%'.$this->search.'%')
+                ->orWhere('barcode', 'like', '%'.$this->search.'%'));
+        }
+
+        if ($this->from !== null) {
+            $query->whereDate('period_end', '>=', $this->from);
+        }
+
+        if ($this->to !== null) {
+            $query->whereDate('period_start', '<=', $this->to);
+        }
+
+        $this->applyProductFilters($query);
+
+        return $query;
+    }
+
+    /**
+     * Narrow a query over stock snapshots (M9).
+     *
+     * Deliberately NO date range: stock is a level, and every stock screen is about the
+     * latest snapshot. Applying the report's date filter here would answer "what did we
+     * hold in July", which is a different question from the one this data can answer,
+     * and it would silently empty the screen for any range not covering the upload day.
+     *
+     * @param  Builder<InventorySnapshot>  $query
+     */
+    public function applyToInventory(Builder $query): Builder
+    {
+        if ($this->channels !== []) {
+            $query->whereIn('channel', array_map(fn (Channel $c) => $c->value, $this->channels));
+        }
+
+        if ($this->skus !== []) {
+            $query->whereIn('sku_id', $this->skus);
+        }
+
+        if ($this->search !== null) {
+            $query->where(fn (Builder $q) => $q
+                ->where('sku_id', 'like', '%'.$this->search.'%')
+                ->orWhere('title', 'like', '%'.$this->search.'%')
+                ->orWhere('barcode', 'like', '%'.$this->search.'%'));
+        }
+
+        $this->applyProductFilters($query);
+
+        return $query;
+    }
+
+    /** The channels in play, or all of them when nothing is selected. @return Channel[] */
+    public function activeChannels(): array
+    {
+        return $this->channels === [] ? Channel::cases() : $this->channels;
     }
 
     /**
@@ -446,14 +530,14 @@ class FilterSet
             return (string) file_get_contents($file->getRealPath());
         }
 
-        $workbook = \App\Services\Spreadsheet\Workbook::open($file->getRealPath());
+        $workbook = Workbook::open($file->getRealPath());
 
         try {
             $sheet = $workbook->sheet($workbook->sheetNames()[0]);
             $values = [];
 
             for ($row = 1; $row <= 5000; $row++) {
-                $value = \App\Services\Spreadsheet\CellValue::asText($sheet->cellAt($row, 1));
+                $value = CellValue::asText($sheet->cellAt($row, 1));
 
                 if ($value !== null) {
                     $values[] = $value;

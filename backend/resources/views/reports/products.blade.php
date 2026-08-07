@@ -4,6 +4,30 @@
     $showValue = auth()->user()->canSeeOrderValue();
     $cur = $totals['currency'];
     $target = $benchmarks['fill_rate_target'];
+
+    /*
+     * M9 headline sell-through, blended across only the channels that HAVE an honest
+     * one. A channel whose sell-in and sell-out cover different days is left out of the
+     * blend and listed with its reason instead — see SellThroughEngine.
+     */
+    $comparable = $channels->filter(fn ($c) => $c['sell_through_pct'] !== null);
+    $comparableDenominator = (int) $comparable->sum('sell_through_denominator');
+    $headlineSellThrough = $comparableDenominator > 0
+        ? round($comparable->sum('sell_out_units') / $comparableDenominator * 100, 1)
+        : null;
+
+    $sellThroughContext = match (true) {
+        ! $sellOutLoaded => 'upload a sell-out report',
+        $headlineSellThrough !== null => 'sold out ÷ received, over the same window',
+        default => 'sell-out loaded, but no window lines up yet',
+    };
+
+    // Which quadrant the panel is drawing. The controller decides; the view only draws.
+    $isVelocity = ($quadrant['mode'] ?? 'fill_rate') === 'velocity';
+
+    $totalSellOutUnits = (int) $channels->sum('sell_out_units');
+    $totalSellOutRevenue = (float) $channels->sum('sell_out_revenue');
+    $limits = $watchlists['thresholds'] ?? config('operon.cover');
 @endphp
 
 <x-operon-page title="Products"
@@ -20,8 +44,11 @@
                :value="number_format($totals['shipped_value'], 0)" tone="n"
                :context="number_format($totals['shipped']).' units shipped to channels'" />
 
-        <x-kpi label="Sell-through" value="—" tone="n"
-               :context="$sellOutLoaded ? 'sell-out loaded' : 'needs the sell-out report (M9)'" />
+        <x-kpi label="Sell-through"
+               :value="$headlineSellThrough ?? '—'"
+               :unit="$headlineSellThrough === null ? null : '%'"
+               :tone="$headlineSellThrough === null ? 'n' : 'warn'"
+               :context="$sellThroughContext" />
 
         <x-kpi label="Not shipped" :value="number_format($totals['shortfall_units'])" unit=" units"
                :tone="$totals['shortfall_units'] > 0 ? 'bad' : 'good'"
@@ -34,19 +61,82 @@
 
     @unless ($sellOutLoaded)
         <div class="note warn">
-            <b>Sell-out is not ingested yet.</b> Everything here measures <b>sell-in</b> — what we
-            shipped to the channels. Sell-through, ABC/XYZ and the sell-in-vs-sell-out quadrant
-            need the Amazon sell-out report, which arrives at M9. Rather than leave the space
-            empty, the quadrant below plots what we can measure today: how much of each SKU the
-            channel orders against how reliably we fill it.
+            <b>No sell-out has been uploaded yet.</b> Everything here measures <b>sell-in</b> — what
+            we shipped to the channels. Sell-through, days of cover and the velocity quadrant need
+            a sell-out report: the Amazon <em>Sales by ASIN</em> export, the DFS orders file, or the
+            Noon sell-out workbook. Until one arrives the quadrant below plots what we can measure
+            today — how much of each SKU the channel orders against how reliably we fill it.
         </div>
     @endunless
 
     <section class="row a">
-        {{-- The labelled quadrant (§1: no chart a teammate has to decode). --}}
-        <x-panel title="Volume against fill rate"
-                 sub="Each dot is one SKU. Top-right is high volume filled well; bottom-right is high volume we keep missing.">
-            @if ($quadrant['points']->isNotEmpty())
+        {{-- The labelled quadrant (§1: no chart a teammate has to decode).
+             Two plots share this panel: the M9 velocity-against-stock one when sell-out
+             is loaded, and M5's volume-against-fill-rate one when it is not. --}}
+        <x-panel :title="$isVelocity ? 'How fast it sells against how much we hold' : 'Volume against fill rate'"
+                 :sub="$isVelocity
+                    ? 'Each dot is one SKU on one channel. Bottom-right is selling fast on thin stock — reorder. Top-left is a lot of stock going nowhere.'
+                    : 'Each dot is one SKU. Top-right is high volume filled well; bottom-right is high volume we keep missing.'">
+            @if ($quadrant['points']->isNotEmpty() && $isVelocity)
+                @php $pts = $quadrant['points']; @endphp
+
+                <div style="position:relative;height:330px;margin:6px 4px 0 44px">
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none"
+                         style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+                        @foreach ([0, 25, 50, 75, 100] as $g)
+                            <line x1="0" y1="{{ 100 - $g }}" x2="100" y2="{{ 100 - $g }}"
+                                  stroke="var(--border)" stroke-width=".3" stroke-dasharray="1.5 1.5"/>
+                            <line x1="{{ $g }}" y1="0" x2="{{ $g }}" y2="100"
+                                  stroke="var(--border)" stroke-width=".3" stroke-dasharray="1.5 1.5"/>
+                        @endforeach
+                    </svg>
+
+                    {{-- Named corners, per §1: nobody should have to decode "top right". --}}
+                    <div style="position:absolute;left:6px;top:4px;font-size:10px;font-weight:700;color:var(--faint)">SITTING ON IT</div>
+                    <div style="position:absolute;right:6px;top:4px;font-size:10px;font-weight:700;color:var(--amber-2);text-align:right">OVERSTOCKED ON A GOOD SELLER</div>
+                    <div style="position:absolute;left:6px;bottom:16px;font-size:10px;font-weight:700;color:var(--faint)">QUIET</div>
+                    <div style="position:absolute;right:6px;bottom:16px;font-size:10px;font-weight:700;color:var(--bad);text-align:right">RUNNING HOT — reorder</div>
+
+                    <div style="position:absolute;left:-44px;top:-6px;font-size:10px;color:var(--faint)">{{ number_format($quadrant['max_units']) }}</div>
+                    <div style="position:absolute;left:-44px;bottom:-6px;font-size:10px;color:var(--faint)">0 units</div>
+
+                    @foreach ($pts as $p)
+                        <div title="{{ $p['title'] ?: $p['sku_id'] }} — {{ $p['channel']->label() }}: {{ number_format($p['soh_units']) }} units held, selling {{ number_format($p['run_rate'], 2) }}/day{{ $p['cover_days'] === null ? '' : ', '.number_format($p['cover_days'], 1).' days of cover' }}{{ $p['stock_is_provisional'] ? ' (stock provisional)' : '' }}"
+                             style="position:absolute;
+                                    left:{{ max(0.5, min(98, $p['x'])) }}%;
+                                    top:{{ max(1, min(97, 100 - $p['y'])) }}%;
+                                    width:9px;height:9px;margin:-4.5px 0 0 -4.5px;border-radius:50%;
+                                    background:{{ $p['risk'] ? 'var(--bad)' : ($p['warn'] ? 'var(--amber)' : 'var(--teal)') }};
+                                    opacity:{{ $p['stock_is_provisional'] ? '.45' : '.78' }};cursor:default"></div>
+
+                        @if (($p['risk'] || $p['warn']) && $loop->index < 18)
+                            <div style="position:absolute;
+                                        left:calc({{ max(0.5, min(98, $p['x'])) }}% + 8px);
+                                        top:calc({{ max(1, min(97, 100 - $p['y'])) }}% - 7px);
+                                        font-size:9.5px;font-weight:650;
+                                        color:{{ $p['risk'] ? 'var(--bad)' : 'var(--amber-2)' }};
+                                        white-space:nowrap;pointer-events:none;max-width:150px;overflow:hidden;text-overflow:ellipsis">
+                                {{ \Illuminate\Support\Str::limit(strip_tags($p['title'] ?: $p['sku_id']), 24) }}
+                            </div>
+                        @endif
+                    @endforeach
+                </div>
+
+                <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--faint);margin:8px 0 0 44px">
+                    <span>slower</span>
+                    <span>up to {{ number_format($quadrant['max_rate'], 1) }} units a day</span>
+                </div>
+
+                <div style="display:flex;gap:16px;margin-top:12px;font-size:11px;color:var(--muted);flex-wrap:wrap">
+                    <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-right:5px"></i>
+                        under {{ $limits['stockout_days'] }} days of cover</span>
+                    <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--amber);margin-right:5px"></i>
+                        overstocking</span>
+                    <span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--teal);margin-right:5px"></i>
+                        healthy</span>
+                    <span style="color:var(--faint)">faded dots are DFS — provisional stock</span>
+                </div>
+            @elseif ($quadrant['points']->isNotEmpty())
                 @php $pts = $quadrant['points']; @endphp
 
                 <div style="position:relative;height:330px;margin:6px 4px 0 34px">
@@ -187,22 +277,201 @@
             </div>
         </x-panel>
 
-        {{-- Sell-in vs sell-out, honestly half-empty until M9. --}}
+        {{-- Sell-in vs sell-out, per channel and live since M9. --}}
         <x-panel title="Sell-in vs sell-out"
-                 sub="What we shipped to the channels against what their customers bought">
-            <div class="stbanner">
-                <div><div class="stbig">—</div></div>
-                <div class="stbar">
-                    <div class="t">
-                        <span>Sell-in — {{ Currency::plain($totals['shipped_value'], $cur) }}</span>
-                        <span>Sell-out — not loaded</span>
+                 sub="What each channel took in against what its customers bought">
+            @if ($sellOutLoaded)
+                <div class="stbanner">
+                    <div>
+                        <div class="stbig">
+                            @if ($headlineSellThrough !== null)
+                                {{ $headlineSellThrough }}<small>%</small>
+                            @else
+                                —
+                            @endif
+                        </div>
                     </div>
-                    <div class="track"></div>
+                    <div class="stbar">
+                        <div class="t">
+                            <span>Received in — {{ $comparableDenominator ? number_format($comparableDenominator).' units' : 'no aligned window' }}</span>
+                            <span>Sold out — {{ number_format($totalSellOutUnits) }} units · {{ Currency::plain($totalSellOutRevenue, $cur) }}</span>
+                        </div>
+                        <div class="track">
+                            @if ($headlineSellThrough !== null)
+                                <i style="width:{{ min(100, $headlineSellThrough) }}%"></i>
+                            @endif
+                        </div>
+                    </div>
                 </div>
-            </div>
 
-            <x-empty title="The sell-out half arrives at M9"
-                     note="Sell-through, days of cover, the overstocking and under-supplying watchlists and the ABC/XYZ split all need it. Everything on this page that does not depend on it is live now." />
+                <div class="scroll-x" style="margin-top:12px">
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th>Channel</th>
+                                <th class="num">Sold out</th>
+                                <th class="num">Received in</th>
+                                <th>Sell-through</th>
+                                <th class="num">Cover</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($channels as $c)
+                                <tr>
+                                    <td style="font-weight:650">
+                                        {{ $c['channel']->label() }}
+                                        @if ($c['stock_is_provisional'])
+                                            <span class="tag amber" title="{{ $c['stock_note'] }}">provisional stock</span>
+                                        @endif
+                                    </td>
+                                    <td class="num">{{ number_format($c['sell_out_units']) }}</td>
+                                    <td class="num">{{ $c['sell_through_denominator'] === null ? '—' : number_format($c['sell_through_denominator']) }}</td>
+                                    <td>
+                                        @if ($c['sell_through_pct'] !== null)
+                                            <x-mini-bar :pct="min(100, $c['sell_through_pct'])" :target="100" />
+                                            {{ $c['sell_through_pct'] }}%
+                                        @else
+                                            <span style="color:var(--faint)">not comparable</span>
+                                        @endif
+                                    </td>
+                                    <td class="num">
+                                        {{ $c['cover_days'] === null ? '—' : number_format($c['cover_days'], 1).' d' }}
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                @foreach ($channels->filter(fn ($c) => $c['sell_through_pct'] === null && $c['sell_through_note']) as $c)
+                    <div class="note" style="margin-top:10px">
+                        <b>{{ $c['channel']->label() }} — no sell-through figure.</b>
+                        {{ $c['sell_through_note'] }}
+                    </div>
+                @endforeach
+
+                @if ($comparable->isNotEmpty())
+                    <div class="note" style="margin-top:10px">
+                        <b>The denominator is stated, not assumed.</b>
+                        {{ $comparable->first()['channel']->label() }} divides by
+                        {{ $comparable->first()['sell_through_basis'] }} — the only figure that
+                        covers the same days as the sell-out it is compared against.
+                    </div>
+                @endif
+            @else
+                <div class="stbanner">
+                    <div><div class="stbig">—</div></div>
+                    <div class="stbar">
+                        <div class="t">
+                            <span>Sell-in — {{ Currency::plain($totals['shipped_value'], $cur) }}</span>
+                            <span>Sell-out — not loaded</span>
+                        </div>
+                        <div class="track"></div>
+                    </div>
+                </div>
+
+                <x-empty title="No sell-out has been uploaded yet"
+                         note="Sell-through, days of cover and the overstocking and under-supplying watchlists all need it. Everything on this page that does not depend on it is live now." />
+            @endif
+        </x-panel>
+    </section>
+
+    {{-- ══ The watchlists (§D). Named lists, each row carrying WHY it is on the list. ══ --}}
+    <section class="row a" id="watchlists">
+        <x-panel title="Overstocking"
+                 :sub="'More than '.$limits['overstock_days'].' days of cover, stock Amazon says has aged 90+ days, or stock that sold nothing at all'">
+            @if ($watchlists && $watchlists['overstocking']['all']->isNotEmpty())
+                <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+                    <b>{{ number_format($watchlists['overstocking']['all']->count()) }} SKUs</b>
+                    holding <b>{{ number_format($watchlists['overstocking']['units']) }} units</b>
+                    @foreach ($watchlists['overstocking']['by_channel'] as $ch => $group)
+                        · {{ \App\Enums\Channel::from($ch)->label() }} {{ $group->count() }}
+                    @endforeach
+                </div>
+                <div class="scroll-x">
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th>SKU</th>
+                                <th>Product</th>
+                                <th>Channel</th>
+                                <th class="num">Held</th>
+                                <th class="num">Cover</th>
+                                <th>Why it is here</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($watchlists['overstocking']['all']->take(20) as $r)
+                                <tr>
+                                    <td class="mono">{{ $r['sku_id'] }}</td>
+                                    <td style="max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ $r['title'] ?? '—' }}</td>
+                                    <td style="font-size:11px">
+                                        {{ $r['channel']->label() }}
+                                        @if ($r['stock_is_provisional'])<span class="tag amber">prov</span>@endif
+                                    </td>
+                                    <td class="num">{{ number_format($r['soh_units']) }}</td>
+                                    <td class="num">{{ $r['cover_days'] === null ? '—' : number_format($r['cover_days'], 0) }}</td>
+                                    <td style="font-size:11px;color:var(--muted)">{{ $r['overstock_reason'] }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @else
+                <x-empty title="Nothing is overstocking"
+                         :note="$sellOutLoaded ? 'No SKU in view is over the cover threshold, aged, or sitting still.' : 'This list needs both a sell-out report and a stock report.'" />
+            @endif
+        </x-panel>
+
+        <x-panel title="Under-supplying — stock-out risk"
+                 :sub="'Under '.$limits['stockout_days'].' days of cover at the rate it is selling, or already out of stock and still selling'">
+            @if ($watchlists && $watchlists['under_supplying']['all']->isNotEmpty())
+                <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+                    <b>{{ number_format($watchlists['under_supplying']['all']->count()) }} SKUs</b>
+                    @foreach ($watchlists['under_supplying']['by_channel'] as $ch => $group)
+                        · {{ \App\Enums\Channel::from($ch)->label() }} {{ $group->count() }}
+                    @endforeach
+                </div>
+                <div class="scroll-x">
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th>SKU</th>
+                                <th>Product</th>
+                                <th>Channel</th>
+                                <th class="num">Held</th>
+                                <th class="num">Selling</th>
+                                <th>Why it is here</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($watchlists['under_supplying']['all']->take(20) as $r)
+                                <tr>
+                                    <td class="mono">{{ $r['sku_id'] }}</td>
+                                    <td style="max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ $r['title'] ?? '—' }}</td>
+                                    <td style="font-size:11px">
+                                        {{ $r['channel']->label() }}
+                                        @if ($r['stock_is_provisional'])<span class="tag amber">prov</span>@endif
+                                    </td>
+                                    <td class="num">{{ $r['soh_units'] === null ? '—' : number_format($r['soh_units']) }}</td>
+                                    <td class="num">{{ number_format($r['run_rate'], 2) }}/d</td>
+                                    <td style="font-size:11px;color:var(--bad)">{{ $r['stockout_reason'] }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="note" style="margin-top:10px">
+                    <b>Where each run rate comes from.</b> Noon publishes its own 7-day rate and we
+                    use it; DFS is a trailing average of dated orders; Amazon's sell-out report has
+                    no daily detail at all, so its rate is a <em>period average</em> over the whole
+                    window and is labelled as one on every row.
+                </div>
+            @else
+                <x-empty title="Nothing is running short"
+                         :note="$sellOutLoaded ? 'No SKU in view is under the cover threshold.' : 'This list needs both a sell-out report and a stock report.'" />
+            @endif
         </x-panel>
     </section>
 

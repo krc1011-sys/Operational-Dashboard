@@ -47,10 +47,28 @@
 
             {{-- The delivery date drives the PO's turnaround, so it is correctable (§L, §Q). --}}
             <div class="panel">
-                <h3 class="font-semibold">Delivery date</h3>
+                <h3 class="font-semibold">
+                    Delivery date
+                    @if($delivery->awaitingDeliveryDate())
+                        <span class="tag warn">needs entering</span>
+                    @endif
+                </h3>
                 <p class="text-sm mt-1" style="color:var(--muted)">
                     @if($delivery->delivered_on)
                         Currently <strong>{{ $delivery->delivered_on->format('d M Y') }}</strong>{{ $delivery->delivery_date_is_manual ? ' — entered by hand' : ' — read from the final packing list' }}.
+                    @elseif($delivery->awaitingDeliveryDate())
+                        {{-- The M9 rule, stated where somebody can act on it. --}}
+                        <strong>Noon does not tell us when a delivery actually went out.</strong>
+                        @if($delivery->estimatedDate())
+                            The workbook carries only Noon's <strong>Estimated Delivery Date</strong> of
+                            {{ $delivery->estimatedDate()->format('d M Y') }} —
+                            <em>{{ \App\Models\Delivery::ESTIMATED_LABEL }}</em> — which is shown as a
+                            placeholder and is not measured from.
+                        @else
+                            The workbook carries no delivery date at all.
+                        @endif
+                        Type the real date below and this PO's turnaround appears. Nothing is
+                        assumed in the meantime: the tool will not invent a date it does not have.
                     @elseif($delivery->planned_date)
                         Only a planned date is known ({{ $delivery->planned_date->format('d M Y') }}), and planned
                         dates get rescheduled, so nothing is measured from it.

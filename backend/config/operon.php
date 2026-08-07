@@ -97,6 +97,39 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Days of cover — the sell-through watchlists  (M9)
+    |--------------------------------------------------------------------------
+    |
+    | Days of cover = stock on hand ÷ daily run rate. These thresholds are what turn
+    | that number into a named list somebody can act on, and they are HERE rather than
+    | in the engine because they are commercial judgement, not arithmetic: the right
+    | overstock line for tissues on 60-day terms is not the right one for a seasonal SKU.
+    |
+    | Starting values, chosen against the real files:
+    |
+    |   overstock_days   90  — three months of stock. Amazon's own "Aged 90+ Days" column
+    |                          uses the same horizon, so a SKU can reach the overstock
+    |                          list either by our arithmetic or by Amazon's own statement,
+    |                          and the two agree on what "too long" means.
+    |   stockout_days    14  — under a fortnight of cover. Roughly the vendor lead time on
+    |                          the real file (17.4 days on the biggest SKU), so this is
+    |                          "we cannot restock before we run out".
+    |   dead_stock_days  30  — stock that sold NOTHING in this many days of the window.
+    |                          It has no run rate at all, so it can never appear on a
+    |                          cover-based list; without this rule the worst overstock in
+    |                          the catalog would be invisible.
+    |
+    */
+    'cover' => [
+        'overstock_days' => 90,
+        'stockout_days' => 14,
+        'dead_stock_days' => 30,
+        // Ignore trivia: a SKU holding a handful of units is not an overstock problem.
+        'min_units_to_flag' => 10,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Channels  (blueprint §R — the channel dimension)
     |--------------------------------------------------------------------------
     |

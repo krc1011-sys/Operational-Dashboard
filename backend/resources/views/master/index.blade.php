@@ -92,6 +92,74 @@
             </x-panel>
         @endif
 
+        {{-- ══ Identifiers in the files that are NOT in this catalog (M9) ══
+             The other half of the fix list. The panel above is about rows the catalog
+             HAS and cannot trust; this is about rows it does not have at all — which is
+             invisible everywhere else, because an unlinked SKU simply drops out of every
+             brand and category rollup without saying so. --}}
+        @if ($unlinked->isNotEmpty())
+            <x-panel>
+                <div x-data="{ open: {{ $unlinkedTraded > 0 && ! $focus ? 'true' : 'false' }} }">
+                    <div class="ph" style="margin:0;cursor:pointer" @click="open = !open">
+                        <div>
+                            <h2 style="{{ $unlinkedTraded > 0 ? 'color:var(--warn)' : '' }}">
+                                {{ number_format($unlinked->count()) }} identifier(s) in the files are not in this catalog
+                            </h2>
+                            <div class="sub">
+                                @if ($unlinkedTraded > 0)
+                                    <b>{{ number_format($unlinkedTraded) }}</b> of them we have actually ordered,
+                                    delivered or sold. Until each is added, its units carry no brand, category,
+                                    cost or margin anywhere in OperON — the rows are stored, not dropped, and
+                                    link themselves the moment the code exists here.
+                                @else
+                                    None has been traded yet — they appear only on stock reports.
+                                @endif
+                            </div>
+                        </div>
+                        <span class="link" x-text="open ? 'Hide' : 'Show'"></span>
+                    </div>
+
+                    <div x-show="open" x-cloak class="scroll-x" style="margin-top:12px">
+                        <table class="tbl">
+                            <thead>
+                                <tr>
+                                    <th>Identifier</th>
+                                    <th>Looks like</th>
+                                    <th>Marketplace</th>
+                                    <th>Product name, as the file has it</th>
+                                    <th class="num">Units</th>
+                                    <th>Where it turned up</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($unlinked as $entry)
+                                    <tr>
+                                        <td class="mono" style="font-weight:650">{{ $entry['sku_id'] }}</td>
+                                        <td><span class="tag">{{ $entry['kind'] }}</span></td>
+                                        <td>{{ $entry['marketplace']?->label() ?? '—' }}</td>
+                                        <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                            {{ $entry['title'] ?? '—' }}
+                                        </td>
+                                        <td class="num">{{ number_format($entry['units']) }}</td>
+                                        <td style="font-size:11px;color:var(--muted)">
+                                            {{ implode(' · ', array_keys($entry['seen_in'])) }}
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div x-show="open" x-cloak class="note" style="margin-top:10px">
+                        <b>Add one by giving it a Company Product Code.</b> Create the product below with its
+                        BD##### code and the channel identifier above, and every stored row referring to it
+                        links up on its own. This list is worked out from the data each time the screen loads,
+                        so an entry disappears the moment its SKU exists — there is nothing to dismiss.
+                    </div>
+                </div>
+            </x-panel>
+        @endif
+
         {{-- Filters. Brand / category / sub-category / owner all come from this catalog. --}}
         <form method="GET" class="panel" style="padding:13px 16px">
             <div class="filters">

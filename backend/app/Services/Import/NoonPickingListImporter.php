@@ -66,6 +66,7 @@ class NoonPickingListImporter implements Importer
 {
     /** Why a line's delivered figure reads what it does — carried into the summary. */
     public const STATED = 'stated';
+
     public const IMPLIED_FULL = 'implied_full';
 
     public function __construct(private readonly Reconciler $reconciler) {}
@@ -417,9 +418,12 @@ class NoonPickingListImporter implements Importer
             $delivery->final_source_file_id = $sourceFile->id;
 
             /*
-             * The real delivery date. Noon's files do not carry one, so the upload form
-             * asks - and until somebody types it, `fulfilmentDate()` falls back to the
-             * upload day and marks itself inferred rather than inventing a date (§Q).
+             * THE REAL DELIVERY DATE IS TYPED BY A PERSON, OR IT IS NOT KNOWN (§Q, M9).
+             *
+             * Noon's files carry only Noon's own ESTIMATED delivery date, which is a plan.
+             * Nothing here substitutes for the real one: left blank, the delivery keeps
+             * the estimate as a labelled placeholder and reports no turnaround at all.
+             * See Delivery::fulfilmentDate() for why an inferred date was worse than none.
              */
             $typed = data_get($sourceFile->summary, 'delivery_date');
 

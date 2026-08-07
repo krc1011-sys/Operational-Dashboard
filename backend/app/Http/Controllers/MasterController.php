@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\ProductChannelEconomics;
 use App\Services\Margin\NetMarginEngine;
 use App\Services\Reporting\CsvExport;
+use App\Services\Reporting\UnlinkedIdentifiers;
 use App\Support\Currency;
 use App\Support\MoneyGate;
 use Illuminate\Http\JsonResponse;
@@ -68,6 +69,15 @@ class MasterController extends Controller
                 ->orderBy('company_product_code')
                 ->limit(200)
                 ->get(),
+            /*
+             * Identifiers seen in a real file that the catalog does not hold (M9).
+             *
+             * Derived rather than stored, so it corrects itself the moment the SKU is
+             * added - see UnlinkedIdentifiers for why a MasterAnomaly row would have been
+             * wiped by the very next master upload.
+             */
+            'unlinked' => UnlinkedIdentifiers::all(50),
+            'unlinkedTraded' => UnlinkedIdentifiers::traded()->count(),
             'reviewCount' => MasterAnomaly::needsReview()->count(),
             'noteCount' => MasterAnomaly::open()->where('severity', MasterAnomaly::SEVERITY_NOTE)->count(),
             'filters' => $request->only(['q', 'brand', 'category', 'sub_category', 'owner', 'flagged']),

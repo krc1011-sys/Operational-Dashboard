@@ -133,14 +133,11 @@
                                 <td class="py-2 pe-4">{{ $delivery->internal_ref ?? '—' }}</td>
                                 <td class="py-2 pe-4">{{ $delivery->fc_code ?? '—' }}</td>
                                 <td class="py-2 pe-4">
-                                    @if($delivery->fulfilmentDate())
-                                        {{ $delivery->fulfilmentDate()->format('d M Y') }}
-                                        @if($delivery->fulfilmentDateIsInferred())
-                                            <span class="text-xs" style="color:var(--faint)">(upload day)</span>
+                                    @if($delivery->shownDate())
+                                        {{ $delivery->shownDate()->format('d M Y') }}
+                                        @if($delivery->shownDateNote())
+                                            <span class="text-xs" style="color:var(--faint)">({{ $delivery->shownDateNote() }})</span>
                                         @endif
-                                    @elseif($delivery->planned_date)
-                                        {{ $delivery->planned_date->format('d M Y') }}
-                                        <span class="text-xs" style="color:var(--faint)">(planned — may change)</span>
                                     @else
                                         —
                                     @endif

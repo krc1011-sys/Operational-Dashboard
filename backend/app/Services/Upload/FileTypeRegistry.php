@@ -172,7 +172,20 @@ class FileTypeRegistry
                     .'PO export\'s own "Cancelled quantity" column is never used for it.',
             ),
 
-            // --- Amazon sell-out (§P) ---------------------------------------
+            /*
+             * --- Amazon sell-out (§P, M9) ------------------------------------
+             *
+             * CONFIRMED AGAINST THE REAL FILE. Row 1 is a metadata BANNER, not a header:
+             * "Program=[Retail]  ...  Currency=[AED]  Viewing Range=[01/06/2026 -
+             * 05/08/2026]  Report Updated=[05/08/2026]". The header is row 2 and the data
+             * starts at row 3. The reporting window is not in the filename we can trust,
+             * it is in that banner, and it is the denominator of Amazon's run rate - so it
+             * is parsed rather than assumed.
+             *
+             * "Shipped Revenue" IS NOT OUR REVENUE. It is the consumer retail price. Ours
+             * is "Shipped COGS" - what Amazon paid us. Both are required here so a file
+             * missing the one we bank is rejected rather than quietly importing zeros.
+             */
             new FileTypeDefinition(
                 type: UploadType::AmazonSellout,
                 extensions: ['xlsx', 'xls', 'csv'],
@@ -181,21 +194,62 @@ class FileTypeRegistry
                 requiredHeaders: [
                     'ASIN' => ['asin'],
                     'Shipped Units' => ['shipped units'],
+                    'Shipped COGS' => ['shipped cogs'],
                 ],
                 optionalHeaders: [
                     'Product Title' => ['product title', 'title'],
                     'Brand' => ['brand'],
                     'Shipped Revenue' => ['shipped revenue'],
-                    'Shipped COGS' => ['shipped cogs'],
                     'Customer Returns' => ['customer returns', 'returns'],
                 ],
-                expectedFilename: 'Sales_ASIN_Sourcing_Retail_...xlsx',
-                notes: 'Sell-out: what Amazon sold on to end customers. Row 1 holds the '
-                    .'reporting window metadata; the header is row 2. Some rows carry only '
-                    .'returns with blank sales.',
+                expectedFilename: 'Sales_ASIN_Sourcing_Retail_<country>_Custom_<from>_<to>.xlsx',
+                notes: 'Sell-out: what Amazon sold on to end customers, one row per ASIN '
+                    .'aggregated over the window in the row-1 banner. OUR revenue is the '
+                    .'"Shipped COGS" column - what Amazon paid us. "Shipped Revenue" is the '
+                    .'CONSUMER retail price and is kept for context only, never as ours. '
+                    .'Some rows carry only returns with blank sales.',
             ),
 
-            // --- Amazon DFS (§R) --------------------------------------------
+            /*
+             * --- Amazon inventory (§P, M9) -----------------------------------
+             *
+             * Same banner-then-header shape as the sell-out report, from the same export
+             * tool. "Sellable On Hand Units" is the stock figure days-of-cover divides;
+             * "Aged 90+ Days Sellable Units" is an overstock signal that needs no
+             * arithmetic at all, because it is Amazon saying this stock has not moved.
+             */
+            new FileTypeDefinition(
+                type: UploadType::AmazonInventory,
+                extensions: ['xlsx', 'xls', 'csv'],
+                sheetCandidates: [],
+                headerRowHint: 2,
+                requiredHeaders: [
+                    'ASIN' => ['asin'],
+                    'Sellable On Hand Units' => ['sellable on hand units'],
+                ],
+                optionalHeaders: [
+                    'Product Title' => ['product title', 'title'],
+                    'Brand' => ['brand'],
+                    'Sellable On Hand Inventory' => ['sellable on hand inventory'],
+                    'Aged 90+ Days Sellable Units' => ['aged 90 days sellable units'],
+                    'Aged 90+ Days Sellable Inventory' => ['aged 90 days sellable inventory'],
+                    'Open Purchase Order Quantity' => ['open purchase order quantity'],
+                    'Net Received Units' => ['net received units'],
+                    'Net Received' => ['net received'],
+                    'Receive Fill %' => ['receive fill pct'],
+                    'Vendor Confirmation %' => ['vendor confirmation pct'],
+                    'Vendor Lead Time' => ['overall vendor lead time days', 'vendor lead time'],
+                    'Unsellable On Hand Units' => ['unsellable on hand units'],
+                ],
+                expectedFilename: 'Inventory_ASIN_Sourcing_Retail_<country>_Custom_<from>_<to>.xlsx',
+                notes: 'Stock at Amazon. Row 1 is the metadata banner, the header is row 2. '
+                    .'"Sellable On Hand Units" is the SOH days-of-cover uses; "Aged 90+ Days '
+                    .'Sellable Units" is stock Amazon says has sat for 90 days, which is the '
+                    .'overstock signal that needs no calculation; "Open Purchase Order '
+                    .'Quantity" is what is still in flight towards them.',
+            ),
+
+            // --- Amazon DFS sell-out (§R) -----------------------------------
             new FileTypeDefinition(
                 type: UploadType::AmazonDfs,
                 extensions: ['xlsx', 'xls', 'csv'],
@@ -207,15 +261,56 @@ class FileTypeRegistry
                     'QTY' => ['qty', 'quantity'],
                 ],
                 optionalHeaders: [
-                    'Invoice number' => ['invoice number', 'invoice'],
+                    'Invoice number' => ['invoice number provided to amazon', 'invoice number', 'invoice'],
                     'Invoice date' => ['invoice date'],
                     'SKU' => ['sku', 'seller sku'],
                     'Item Description' => ['item description', 'description'],
                     'Invoice amount' => ['invoice amount', 'amount'],
                 ],
-                expectedFilename: 'DFS_<YYYY-MM>.xlsx',
+                expectedFilename: 'DFS Sales_<from> to <to>.xlsx',
                 notes: 'Direct Fulfilment: real end-customer orders we fulfil from our own '
-                    .'stock. No PO and no fill rate - a revenue feed by ASIN. Outbound only.',
+                    .'stock. No PO and no fill rate - it IS the DFS sell-out. Transaction '
+                    .'level, one row per order line, with an Excel-serial invoice date and '
+                    .'a barcode in the SKU column. Aggregated to per-ASIN-per-day so DFS '
+                    .'velocity can be derived the same way Noon\'s is.',
+            ),
+
+            /*
+             * --- Amazon DFS inventory (§R, M9) -------------------------------
+             *
+             * A CSV, and the only file in the system that is one. Its identifier columns
+             * arrive wrapped as Excel text formulas - ="0726208185355" - which is the
+             * exporter defending the leading zero against Excel. Barcode::key strips the
+             * wrapper along with everything else that is not a digit.
+             *
+             * DFS STOCK IS PROVISIONAL. See the DfsInventoryImporter for why, and note
+             * that this definition deliberately does NOT require anything beyond the
+             * identifier and the quantity: no deeper DFS stock logic is built at M9.
+             */
+            new FileTypeDefinition(
+                type: UploadType::AmazonDfsInventory,
+                extensions: ['csv', 'xlsx', 'xls'],
+                sheetCandidates: [],
+                headerRowHint: 1,
+                requiredHeaders: [
+                    'ASIN' => ['asin'],
+                    'Available units' => ['available units'],
+                ],
+                optionalHeaders: [
+                    'SKU' => ['sku'],
+                    'UPC' => ['upc', 'barcode'],
+                    'Title' => ['title', 'description'],
+                    'Warehouse' => ['warehouse'],
+                    'Warehouse name' => ['warehouse name'],
+                    'Status' => ['status'],
+                ],
+                expectedFilename: 'amazon_df_inv_bulk_<timestamp>_dataset_0.csv',
+                notes: 'DFS stock, as a current snapshot only. PROVISIONAL: this is Amazon\'s '
+                    .'view of our direct-fulfilment stock, not our own warehouse system, so '
+                    .'every row is stored flagged and every screen showing it says so. The '
+                    .'real DFS stock position waits on the OperON to in-house-tool link. '
+                    .'SKU and UPC arrive as ="0726208185355" - an Excel text wrapper - and '
+                    .'are normalised to plain digits.',
             ),
 
             // --- Noon (§Q, M8) -----------------------------------------------
@@ -310,6 +405,47 @@ class FileTypeRegistry
                     .'the way an Amazon packing list is read understates the fill rate badly. '
                     .'An EMPTY tab is valid and means the whole PO went out in full.',
                 allowsNoDataRows: true,
+            ),
+
+            /*
+             * --- Noon sell-out and stock (§Q, M9) ----------------------------
+             *
+             * ONE WORKBOOK, BOTH HALVES, ONE UPLOAD TYPE. The file Noon sends is literally
+             * "Noon Sell out_BD Sell Out & SOH.xlsx": its "Sellout L60" tab is 60 days of
+             * daily sell-out by barcode and its "SOH" tab is the current stock position by
+             * NIN. Splitting them into two dropdown entries would mean uploading the same
+             * file twice to get one answer, so this type reads both and says so.
+             *
+             * The third tab it needs is "Barcodes", which maps ZSKU (the NIN) to barcode.
+             * It is the bridge between the two halves - the sell-out side is keyed by
+             * barcode and the stock side by NIN - and without it Noon velocity and Noon
+             * cover could not be put on the same row.
+             *
+             * Dates on both tabs are Excel serials (46204 = 1 Jul 2026), and the SOH tab's
+             * barcode column is an XLOOKUP formula whose cached value is what we read.
+             */
+            new FileTypeDefinition(
+                type: UploadType::NoonSellout,
+                extensions: ['xlsx', 'xls'],
+                sheetCandidates: ['Sellout L60'],
+                headerRowHint: 1,
+                requiredHeaders: [
+                    'order_pdate' => ['order pdate', 'order date'],
+                    'pbarcode_canonical' => ['pbarcode canonical', 'barcode'],
+                    'units_sold' => ['units sold'],
+                ],
+                optionalHeaders: [
+                    'brand_code' => ['brand code'],
+                    'product_title' => ['product title', 'title'],
+                    'GMV' => ['gmv'],
+                ],
+                expectedFilename: 'Noon Sell out_<name> Sell Out & SOH.xlsx',
+                notes: 'Noon sell-out AND stock in one workbook. "Sellout L60" is daily '
+                    .'sell-out by barcode over the last 60 days; "SOH" is the current stock '
+                    .'position by NIN, and it carries Noon\'s OWN 7-day daily run rate '
+                    .'(L7_DRR), which beats anything we could derive. "Barcodes" maps NIN to '
+                    .'barcode and is what joins the two halves. All three tabs are read from '
+                    .'this one upload.',
             ),
 
             // --- Master products sheet (§S) ----------------------------------

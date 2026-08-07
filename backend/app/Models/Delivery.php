@@ -73,6 +73,9 @@ class Delivery extends Model
         return strtoupper($marketplace->value).':'.$fallback;
     }
 
+    /** How an unconfirmed Noon date is described, everywhere it is shown (M9). */
+    public const ESTIMATED_LABEL = 'estimated (not confirmed)';
+
     /**
      * The date this delivery actually went out - what turnaround is measured against (§L).
      *
@@ -80,9 +83,21 @@ class Delivery extends Model
      * not the same as having shipped. Note what is NOT used here: the interim banner's
      * "Shipment Date", which is provisional and gets rescheduled by Amazon (§K).
      *
-     * The ladder is: the real delivery date (the final's date, or the one typed in for
-     * Noon) → failing that, the day the final was uploaded. The second is an
-     * approximation and `fulfilmentDateIsInferred()` says so, so a screen can mark it.
+     * ╔══════════════════════════════════════════════════════════════════════════════╗
+     * ║  ON NOON, THIS IS NULL UNTIL A PERSON TYPES THE DATE. THE TOOL DOES NOT      ║
+     * ║  INVENT ONE. (M9 refinement of M8.)                                          ║
+     * ╚══════════════════════════════════════════════════════════════════════════════╝
+     *
+     * A Noon workbook carries only Noon's own ESTIMATED delivery date, which is a plan.
+     * M8 filled the gap with the upload day and marked it inferred - but an inferred date
+     * still drives turnaround, still gets averaged into the benchmark, and still reads
+     * like a fact on a screen. The day a file happened to be uploaded is not evidence of
+     * anything about when goods moved, and a 15-day turnaround computed from it is worse
+     * than no turnaround at all.
+     *
+     * So Noon gets no fallback. `estimatedDate()` carries Noon's estimate for display,
+     * always labelled, and turnaround stays blank until the real date is entered on the
+     * delivery. Amazon is unchanged: its final packing list states a real shipment date.
      */
     public function fulfilmentDate(): ?Carbon
     {
@@ -90,13 +105,90 @@ class Delivery extends Model
             return null;
         }
 
-        return $this->delivered_on ?? $this->final_uploaded_at?->copy()->startOfDay();
+        if ($this->delivered_on !== null) {
+            return $this->delivered_on;
+        }
+
+        // Noon: no real date, and no substitute for one.
+        if ($this->marketplace === Marketplace::Noon) {
+            return null;
+        }
+
+        return $this->final_uploaded_at?->copy()->startOfDay();
     }
 
     /** True when the date above is the upload day standing in for a missing real date. */
     public function fulfilmentDateIsInferred(): bool
     {
-        return $this->has_final && $this->delivered_on === null;
+        return $this->has_final
+            && $this->delivered_on === null
+            && $this->marketplace !== Marketplace::Noon;
+    }
+
+    /**
+     * The channel's own ESTIMATE — a plan, never a fact.
+     *
+     * For Noon this is the "Estimated Delivery Date" off the PO tab; for Amazon it is the
+     * packing list's planned shipment date. Shown as a placeholder wherever the real date
+     * is missing, and never without ESTIMATED_LABEL beside it.
+     */
+    public function estimatedDate(): ?Carbon
+    {
+        return $this->planned_date;
+    }
+
+    /**
+     * Is somebody being asked to type this delivery's real date?
+     *
+     * True for a shipped Noon delivery with no confirmed date. This is what puts it on a
+     * to-do rather than letting it sit silently without turnaround.
+     */
+    public function awaitingDeliveryDate(): bool
+    {
+        return $this->has_final
+            && $this->delivered_on === null
+            && $this->marketplace === Marketplace::Noon;
+    }
+
+    /** The date a screen should print for this delivery. */
+    public function shownDate(): ?Carbon
+    {
+        return $this->displayDate()[0];
+    }
+
+    /**
+     * What that date actually IS, in three words — "estimated (not confirmed)", "entered
+     * by hand", "planned". Never null-and-silent for a date that is not a fact.
+     */
+    public function shownDateNote(): ?string
+    {
+        return $this->displayDate()[1];
+    }
+
+    /** The date to show, and what it actually is. @return array{0: ?Carbon, 1: ?string} */
+    public function displayDate(): array
+    {
+        if ($this->delivered_on !== null) {
+            return [$this->delivered_on, $this->delivery_date_is_manual ? 'entered by hand' : null];
+        }
+
+        if ($this->awaitingDeliveryDate() && $this->planned_date !== null) {
+            return [$this->planned_date, self::ESTIMATED_LABEL];
+        }
+
+        if ($this->fulfilmentDateIsInferred()) {
+            return [$this->fulfilmentDate(), 'inferred from the upload day'];
+        }
+
+        return [$this->planned_date, $this->planned_date === null ? null : 'planned'];
+    }
+
+    /** Shipped Noon deliveries still waiting for somebody to confirm the date (M9). */
+    public function scopeAwaitingDate(Builder $query): Builder
+    {
+        return $query->where('marketplace', Marketplace::Noon->value)
+            ->where('has_final', true)
+            ->whereNull('delivered_on');
     }
 
     /** Shortfall = interim - final, in units and money (§L). */

@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\Channel;
 use App\Enums\Marketplace;
 use App\Enums\SourceFileStatus;
 use App\Enums\Stage;
@@ -14,18 +15,23 @@ use App\Models\Product;
 use App\Models\ProductChannelEconomics;
 use App\Models\ProductIdentifier;
 use App\Models\PurchaseOrder;
+use App\Models\SelloutRow;
 use App\Models\ShipmentLine;
 use App\Models\SourceFile;
 use App\Models\User;
+use App\Services\Analytics\SellThroughEngine;
 use App\Services\Margin\NetMarginEngine;
 use App\Services\Margin\ProfitAndLoss;
 use App\Services\Margin\SkuMargin;
 use App\Services\Reporting\FilterSet;
+use App\Services\Reporting\UnlinkedIdentifiers;
 use App\Services\Spreadsheet\Workbook;
 use App\Services\Upload\UploadService;
 use App\Support\Currency;
 use Illuminate\Console\Command;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 /**
  * Runs the real sample files through the actual upload pipeline and reports what came
@@ -130,12 +136,16 @@ class VerifySampleFiles extends Command
                 default => UploadType::NoonPo,
             };
 
-            // POs before picking lists, whatever order glob returned them in.
-            $plan[] = [$path, $type, $type === UploadType::NoonFinalPicking
-                // The file carries only Noon's ESTIMATE, so the real date is typed on the
-                // upload form. This is the date the sample delivery actually went out.
-                ? ['delivery_date' => '2026-07-23']
-                : []];
+            /*
+             * POs before picking lists, whatever order glob returned them in.
+             *
+             * NO DELIVERY DATE IS PASSED, DELIBERATELY (M9 refinement of M8). M8 supplied
+             * 23 Jul here so the sample would show a turnaround; that was a date nobody
+             * had confirmed, sitting in the verification output looking like a fact. The
+             * sample now behaves exactly as a real upload with the field left blank does:
+             * Noon's estimate shows as an estimate and turnaround waits.
+             */
+            $plan[] = [$path, $type, []];
         }
 
         usort($plan, fn ($a, $b) => self::planOrder($a[1]) <=> self::planOrder($b[1]));
@@ -161,9 +171,61 @@ class VerifySampleFiles extends Command
             $plan[] = [$path, UploadType::MasterSheet, []];
         }
 
-        // 4. Cancellations last, so they can see the PO lines they refer to.
+        // 4. Cancellations, so they can see the PO lines they refer to.
         foreach (glob($dir.'/Cancelled items*.xlsx') ?: [] as $path) {
             $plan[] = [$path, UploadType::AmazonCancellations, []];
+        }
+
+        /*
+         * 5. M9 — sell-out and stock, LAST and deliberately so.
+         *
+         * These are the only files whose rows are keyed purely on the catalog: a sell-out
+         * row has no PO to fall back on, so an ASIN or NIN the master has not seen is
+         * simply unmatched. Loading them after the master sheet is what a real week looks
+         * like, and it is what makes the unmatched count mean "not in the catalog"
+         * rather than "the catalog had not been uploaded yet".
+         */
+        foreach ($this->m9Plan($dir) as $entry) {
+            $plan[] = $entry;
+        }
+
+        return $plan;
+    }
+
+    /**
+     * The five M9 files, matched on the distinctive part of their real names.
+     *
+     * Sell-out before stock on each channel, because cover reads better in a log when
+     * the velocity it divides is already on screen.
+     *
+     * @return array<int, array{0: string, 1: UploadType, 2: array}>
+     */
+    private function m9Plan(string $dir): array
+    {
+        $folder = $dir.'/M9_Sellout_DFS';
+
+        $matches = fn (string $glob) => glob($folder.'/'.$glob) ?: [];
+
+        $plan = [];
+
+        foreach ($matches('Sales_ASIN_Sourcing_Retail*.xlsx') as $path) {
+            $plan[] = [$path, UploadType::AmazonSellout, []];
+        }
+
+        foreach ($matches('Inventory_ASIN_Sourcing_Retail*.xlsx') as $path) {
+            $plan[] = [$path, UploadType::AmazonInventory, []];
+        }
+
+        foreach ($matches('DFS Sales*.xlsx') as $path) {
+            $plan[] = [$path, UploadType::AmazonDfs, []];
+        }
+
+        foreach ($matches('amazon_df_inv_bulk*.csv') as $path) {
+            $plan[] = [$path, UploadType::AmazonDfsInventory, []];
+        }
+
+        foreach ($matches('*Sell Out & SOH.xlsx') as $path) {
+            $plan[] = [$path, UploadType::NoonSellout, []];
         }
 
         return $plan;
@@ -225,7 +287,225 @@ class VerifySampleFiles extends Command
         $this->reportMasterCatalog();
         $this->reportNoon();
         $this->reportProfitability();
+        $this->reportSellOutAndCover();
+        $this->reportUnlinkedIdentifiers();
         $this->reportUnmatched();
+    }
+
+    /**
+     * M9 — sell-out, velocity and days of cover, on all three channels (§P, §R).
+     *
+     * Two things are printed here that a table of totals would not give you.
+     *
+     * FIRST, THE TWO AMAZON REVENUE COLUMNS SIDE BY SIDE. "Shipped COGS" is what Amazon
+     * paid us and "Shipped Revenue" is what the customer paid Amazon; they read
+     * 1,704,390.15 and 1,691,050.50 on the real file. Printing both, labelled, is what
+     * stops the wrong one quietly becoming "our revenue" in some future change.
+     *
+     * SECOND, ONE SKU'S COVER WORKED THROUGH LONG-HAND. Days of cover is the figure
+     * somebody reorders against, and it is three numbers deep — stock, a run rate, and a
+     * window. Showing the arithmetic for one real SKU means a reader can check it with a
+     * calculator instead of trusting it.
+     */
+    private function reportSellOutAndCover(): void
+    {
+        $engine = new SellThroughEngine(new FilterSet);
+
+        if (! $engine->hasSellOut() && ! $engine->hasStock()) {
+            return;
+        }
+
+        $this->line('');
+        $this->components->twoColumnDetail('<options=bold>Sell-out, velocity and days of cover (§P/§R, M9)</>', '');
+
+        foreach ($engine->byChannel() as $channel) {
+            if ($channel['sell_out_units'] === 0 && $channel['soh_units'] === null) {
+                continue;
+            }
+
+            $this->line('');
+            $this->line(sprintf('  <options=bold>%s</>%s',
+                $channel['channel']->label(),
+                $channel['stock_is_provisional'] ? '   <fg=yellow>stock '.$channel['stock_note'].'</>' : ''));
+
+            $this->line(sprintf('    sell-out          %s units · %s   over %s (%s days, %s grain)',
+                number_format($channel['sell_out_units']),
+                Currency::plain($channel['sell_out_revenue'], $channel['currency']),
+                $channel['sell_out_from']
+                    ? Carbon::parse($channel['sell_out_from'])->format('j M').' – '.Carbon::parse($channel['sell_out_to'])->format('j M Y')
+                    : 'no window',
+                $channel['sell_out_days'] ?? '?',
+                $channel['sell_out_grain'] ?? '?'));
+
+            $this->line(sprintf('    sell-in (all held) %s units%s',
+                $channel['sell_in_units'] === null ? 'n/a — no PO step' : number_format($channel['sell_in_units']),
+                $channel['sell_in_window_units'] === null ? '' : sprintf(
+                    '   ·  dated inside the sell-out window: %s units on %d day(s)',
+                    number_format($channel['sell_in_window_units']),
+                    $channel['sell_in_window_days']
+                )));
+
+            if ($channel['sell_through_pct'] !== null) {
+                $this->line(sprintf('    <fg=green>SELL-THROUGH      %s%%</>   %s ÷ %s, using %s',
+                    $channel['sell_through_pct'],
+                    number_format($channel['sell_out_units']),
+                    number_format($channel['sell_through_denominator']),
+                    $channel['sell_through_basis']));
+                $this->line(sprintf('                      %s units still sitting at the channel',
+                    number_format($channel['sitting_units'])));
+            } else {
+                $this->line('    <fg=yellow>SELL-THROUGH      not reported</>');
+                $this->line('      <fg=gray>'.wordwrap((string) $channel['sell_through_note'], 96, "\n      ").'</>');
+            }
+
+            $this->line(sprintf('    stock on hand     %s units as at %s%s',
+                $channel['soh_units'] === null ? 'n/a' : number_format($channel['soh_units']),
+                $channel['soh_as_at'] ? Carbon::parse($channel['soh_as_at'])->format('j M Y') : '—',
+                $channel['aged_90_units'] ? '   ·  '.number_format($channel['aged_90_units']).' units aged 90+ days' : ''));
+
+            $this->line(sprintf('    run rate / cover  %s units/day  →  %s days of cover',
+                $channel['daily_run_rate'] === null ? '—' : number_format($channel['daily_run_rate'], 2),
+                $channel['cover_days'] === null ? '—' : number_format($channel['cover_days'], 1)));
+        }
+
+        // The two Amazon columns, together, so the trap stays visible.
+        $ourRevenue = (float) SelloutRow::where('channel', Channel::AmazonRetail->value)->sum('revenue');
+        $consumer = (float) SelloutRow::where('channel', Channel::AmazonRetail->value)->sum('shipped_revenue');
+
+        if ($ourRevenue > 0) {
+            $this->line('');
+            $this->line('  <options=bold>Amazon sell-out: the two revenue columns, and which one is ours</>');
+            $this->row('  OUR revenue — "Shipped COGS" (what Amazon paid us)', round($ourRevenue, 2), 1704390.15);
+            $this->row('  NOT ours — "Shipped Revenue" (consumer retail)', round($consumer, 2), 1691050.50);
+            $this->line('  <fg=gray>Those are 0.8% apart. Taking the wrong one would never look wrong on a screen,');
+            $this->line('  which is why `revenue` is a named column and `revenue_basis` records where it came from.</>');
+        }
+
+        $this->reportOneCoverCalculation($engine);
+    }
+
+    /** One real SKU's days of cover, worked through so a person can check it. */
+    private function reportOneCoverCalculation(SellThroughEngine $engine): void
+    {
+        $rows = $engine->skuRows();
+
+        // The most interesting SKU is the one somebody has to act on: biggest stock
+        // among those on a watchlist. Failing that, the biggest seller with cover.
+        $sample = $rows
+            ->filter(fn (array $r) => $r['cover_days'] !== null && $r['overstock_reason'] !== null)
+            ->sortByDesc('soh_units')
+            ->first()
+            ?? $rows->filter(fn (array $r) => $r['cover_days'] !== null)->sortByDesc('sell_out_units')->first();
+
+        if ($sample === null) {
+            return;
+        }
+
+        $this->line('');
+        $this->components->twoColumnDetail('<options=bold>One SKU\'s days of cover, long-hand</>', '');
+        $this->line(sprintf('  %s  <fg=gray>%s</>', $sample['sku_id'], Str::limit((string) $sample['title'], 52)));
+        $this->line(sprintf('  channel                %s%s', $sample['channel']->label(),
+            $sample['stock_is_provisional'] ? '   <fg=yellow>(stock '.$sample['stock_note'].')</>' : ''));
+        $this->line(sprintf('  sell-out               %s units over %s days',
+            number_format($sample['sell_out_units']),
+            $sample['run_rate_window_days'] ?? $sample['sell_out_window_days'] ?? '?'));
+        $this->line(sprintf('  run rate               %s units/day   <fg=gray>(%s)</>',
+            number_format((float) $sample['run_rate'], 4),
+            $sample['run_rate_basis']));
+
+        if ($sample['run_rate_is_period_average']) {
+            $this->line('    <fg=yellow>· a PERIOD AVERAGE, not a current rate — Amazon\'s report has no daily detail</>');
+        }
+
+        if ($sample['run_rate_is_stated']) {
+            $this->line('    <fg=gray>· the channel\'s own figure, kept in preference to anything we could derive</>');
+        }
+
+        $this->line(sprintf('  stock on hand          %s units', number_format($sample['soh_units'])));
+        $this->line(sprintf('  <options=bold>DAYS OF COVER          %s ÷ %s = %s days</>',
+            number_format($sample['soh_units']),
+            number_format((float) $sample['run_rate'], 4),
+            number_format((float) $sample['cover_days'], 1)));
+
+        // The arithmetic must reproduce itself, or the line above is decoration.
+        $this->row('  Recomputed from the two figures printed',
+            round($sample['soh_units'] / (float) $sample['run_rate'], 1),
+            round((float) $sample['cover_days'], 1));
+
+        foreach (['overstock_reason' => 'Overstocking', 'stockout_reason' => 'Stock-out risk'] as $key => $label) {
+            if ($sample[$key] !== null) {
+                $this->line(sprintf('  <fg=yellow>on the %s list: %s</>', $label, $sample[$key]));
+            }
+        }
+
+        $lists = $engine->watchlists($rows);
+
+        $this->line('');
+        $this->line(sprintf('  Watchlists — overstocking %s SKUs (%s units) · under-supplying %s SKUs',
+            number_format($lists['overstocking']['all']->count()),
+            number_format($lists['overstocking']['units']),
+            number_format($lists['under_supplying']['all']->count())));
+
+        foreach (['overstocking', 'under_supplying'] as $list) {
+            foreach ($lists[$list]['by_channel'] as $channel => $group) {
+                $this->line(sprintf('    %-16s %-14s %s', $list, $channel, $group->count()));
+            }
+        }
+
+        $this->line('');
+    }
+
+    /**
+     * Identifiers the files name that the master catalog does not hold (§S, M9 fix list).
+     *
+     * The M8 checkpoint said "one Noon PO line has a NIN that is not in the master" and
+     * left it at that. Here it is BY NAME, so it can actually be added — along with
+     * everything M9's sell-out and stock feeds turned up.
+     */
+    private function reportUnlinkedIdentifiers(): void
+    {
+        $all = UnlinkedIdentifiers::all(10_000);
+
+        if ($all->isEmpty()) {
+            return;
+        }
+
+        $traded = UnlinkedIdentifiers::traded();
+
+        $this->line('');
+        $this->components->twoColumnDetail(
+            '<options=bold>Not in the master catalog — the fix list (§S)</>', '');
+
+        $this->line(sprintf('  %s identifier(s) appear in the files and not in the catalog; %s of them we have '
+            .'ordered, delivered or sold.', number_format($all->count()), number_format($traded->count())));
+        $this->line('  <fg=gray>Every row is stored, never dropped, and links itself the moment the code exists (§K).</>');
+
+        // THE ONE M8 PROMISED. Named, so it can be added.
+        $noonPoLine = $traded->first(fn (array $e) => $e['marketplace'] === Marketplace::Noon
+            && isset($e['seen_in']['ordered on a PO']));
+
+        if ($noonPoLine !== null) {
+            $this->line('');
+            $this->line('  <options=bold>The Noon PO line M8 flagged, by name:</>');
+            $this->line('    <fg=yellow>NIN '.$noonPoLine['sku_id'].'</>');
+            $this->line(sprintf('    %s', $noonPoLine['title'] ?? '(no title on the file)'));
+            $this->line(sprintf('    %s units, %s', number_format($noonPoLine['units']),
+                implode(' and ', array_keys($noonPoLine['seen_in']))));
+            $this->line('    <fg=gray>Add it to the master with a BD##### code and this line joins every rollup.</>');
+        }
+
+        $this->line('');
+        $this->line('  Everything we have traded that the catalog does not know:');
+
+        foreach ($traded->take(20) as $entry) {
+            $this->line('    <fg=yellow>·</> '.UnlinkedIdentifiers::describe($entry));
+        }
+
+        if ($traded->count() > 20) {
+            $this->line(sprintf('    <fg=gray>… and %d more, all listed on /master.</>', $traded->count() - 20));
+        }
+
+        $this->line('');
     }
 
     /**
@@ -780,7 +1060,7 @@ class VerifySampleFiles extends Command
                 number_format($line->qty_accepted),
                 number_format($line->qty_shipped),
                 number_format($line->qty_accepted - $line->qty_shipped),
-                \Illuminate\Support\Str::limit((string) $line->title, 46)
+                Str::limit((string) $line->title, 46)
             ));
         }
 
@@ -824,11 +1104,29 @@ class VerifySampleFiles extends Command
             ->where('internal_ref', $po->po_number)->first();
 
         if ($delivery !== null) {
-            $this->line(sprintf('  Delivery %s — booked %s, delivered %s on %s',
+            $this->line(sprintf('  Delivery %s — booked %s, delivered %s',
                 $delivery->delivery_key,
                 number_format($delivery->units_interim),
-                number_format($delivery->units_final),
-                $delivery->fulfilmentDate()?->format('d M Y') ?? 'date not set'));
+                number_format($delivery->units_final)));
+
+            /*
+             * THE M9 REFINEMENT, ASSERTED. M8 passed 23 Jul in on the upload form so the
+             * sample would show a turnaround; nobody had confirmed that date. The tool now
+             * refuses to supply one, and this section proves it still refuses - because
+             * the failure mode is silent, and a re-introduced fallback would simply make
+             * a turnaround reappear and look correct.
+             */
+            $this->row('  Delivery date is NOT invented', $delivery->fulfilmentDate()?->format('d M Y') ?? 'not set', 'not set');
+            $this->row('  Waiting for a person to enter it', $delivery->awaitingDeliveryDate() ? 'yes' : 'no', 'yes');
+
+            $this->line(sprintf(
+                '     shown meanwhile: %s  <fg=yellow>%s</>',
+                $delivery->shownDate()?->format('d M Y') ?? '—',
+                $delivery->shownDateNote() ?? ''
+            ));
+            $this->line('     <fg=gray>That is Noon\'s own Estimated Delivery Date off the PO tab. It is a plan, so it is');
+            $this->line('     labelled and never measured from: this PO reports NO turnaround until the real');
+            $this->line('     date is entered on /deliveries. Nothing here is assumed.</>');
         }
 
         // The money side, which M7 already knew how to do the moment Noon had rows.

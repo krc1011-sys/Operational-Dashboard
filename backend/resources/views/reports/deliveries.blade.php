@@ -94,8 +94,11 @@
                                 @endif
                             </td>
                             <td>
-                                {{ ($delivery->delivered_on ?? $delivery->planned_date)?->format('d M Y') ?? '—' }}
-                                @if ($delivery->fulfilmentDateIsInferred())
+                                {{ $delivery->shownDate()?->format('d M Y') ?? '—' }}
+                                @if ($delivery->awaitingDeliveryDate())
+                                    {{-- Noon's own estimate, never presented as the real thing (M9). --}}
+                                    <span class="tag warn" title="Noon supplies only an estimated delivery date. Open the delivery and enter the real one — turnaround waits on it.">{{ \App\Models\Delivery::ESTIMATED_LABEL }}</span>
+                                @elseif ($delivery->fulfilmentDateIsInferred())
                                     <span class="tag warn" title="No date in the file; the upload day stands in">inferred</span>
                                 @endif
                             </td>

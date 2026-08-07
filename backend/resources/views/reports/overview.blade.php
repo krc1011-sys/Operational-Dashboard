@@ -21,12 +21,48 @@
         ? 'n' : ($averageDays <= $benchmarks['turnaround_days'] ? 'good' : 'warn');
 
     $tone = fn (string $s) => match ($s) { 'good' => 'good', 'warn' => 'warn', 'bad' => 'bad', default => 'n' };
+
+    /*
+     * The two M9 tiles (§P/§R).
+     *
+     * Both can legitimately have no number: sell-through when no channel's sell-in and
+     * sell-out cover the same days, cover when nothing is selling. In each case the tile
+     * says WHICH of those it is, because "—" on its own reads as a bug.
+     */
+    $sellThroughContext = match (true) {
+        $sellThrough === null => 'upload a sell-out report',
+        $sellThrough['pct'] !== null => 'sold out ÷ received, over the same window',
+        default => 'sell-out loaded, but no window lines up yet',
+    };
+
+    // The blended cover is weighted by stock, not averaged: a channel holding 60,000
+    // units and one holding 200 do not get an equal say in "how long will this last".
+    $coverChannels = $cover ? collect($cover['channels'])->filter(fn ($c) => $c['cover_days'] !== null) : collect();
+    $coverStock = (int) $coverChannels->sum('soh_units');
+    $blendedCover = $coverStock > 0
+        ? round($coverChannels->sum(fn ($c) => $c['cover_days'] * $c['soh_units']) / $coverStock, 1)
+        : null;
+
+    $coverValue = $blendedCover ?? '—';
+    $coverTone = match (true) {
+        $blendedCover === null => 'n',
+        $blendedCover >= ($cover['thresholds']['overstock_days'] ?? 90) => 'bad',
+        $blendedCover < ($cover['thresholds']['stockout_days'] ?? 14) => 'bad',
+        default => 'good',
+    };
+    $coverContext = match (true) {
+        $cover === null => 'upload a stock report',
+        $blendedCover === null => number_format($cover['soh_units']).' units held, nothing selling',
+        default => number_format($cover['soh_units']).' units held across the channels in view',
+    };
 @endphp
 
 <x-operon-page title="Overview" sub="Fulfilment health · {{ number_format($totals['po_count']) }} POs in view">
     <x-slot:controls>
         <div class="seg">
-            @foreach (['' => 'All channels', 'amazon_retail' => 'Amazon', 'noon_retail' => 'Noon'] as $value => $label)
+            {{-- Data-driven since M9: DFS now carries sell-out and stock of its own, and
+                 a hard-coded pair silently hid a whole channel from this selector. --}}
+            @foreach (['' => 'All channels'] + collect(\App\Enums\Channel::cases())->mapWithKeys(fn ($c) => [$c->value => $c->label()])->all() as $value => $label)
                 <a class="{{ (($filters->channels[0]->value ?? '') === $value && $value !== '') || ($value === '' && $filters->channels === []) ? 'on' : '' }}"
                    href="{{ route('overview.index', array_merge($filters->query(), ['channels' => $value ? [$value] : null])) }}">{{ $label }}</a>
             @endforeach
@@ -64,11 +100,22 @@
                :context="number_format($totals['shipped']).' units shipped'"
                :href="route('deliveries.index')" />
 
+        {{-- Sell-through and days of cover (M9). Both read "—" rather than a number
+             whenever the engine has no honest one to give; the panels below say why. --}}
         <x-kpi label="Sell-through"
                :value="$sellThrough['pct'] ?? '—'"
-               :unit="$sellThrough ? '%' : null"
-               :tone="$sellThrough ? 'warn' : 'n'"
-               :context="$sellThrough ? 'shipped in vs sold out' : 'needs the sell-out report (M9)'"
+               :unit="$sellThrough && $sellThrough['pct'] !== null ? '%' : null"
+               :tone="$sellThrough && $sellThrough['pct'] !== null ? 'warn' : 'n'"
+               :context="$sellThroughContext"
+               :href="route('products.index')" />
+
+        <x-kpi label="Days of cover"
+               :value="$coverValue"
+               :unit="$coverValue === '—' ? null : ' days'"
+               :tone="$coverTone"
+               :chip="$cover && $cover['provisional'] ? 'DFS provisional' : null"
+               chipTone="w"
+               :context="$coverContext"
                :href="route('products.index')" />
 
         <x-kpi label="Revenue at risk"
@@ -91,19 +138,84 @@
 
             @if ($sellThrough)
                 <div class="stbanner">
-                    <div><div class="stbig">{{ $sellThrough['pct'] }}<small>%</small></div></div>
+                    <div>
+                        <div class="stbig">
+                            @if ($sellThrough['pct'] !== null)
+                                {{ $sellThrough['pct'] }}<small>%</small>
+                            @else
+                                —
+                            @endif
+                        </div>
+                    </div>
                     <div class="stbar">
                         <div class="t">
-                            <span>Shipped in — {{ Currency::plain($sellThrough['sell_in'], $cur) }}</span>
-                            <span>Sold out — {{ Currency::plain($sellThrough['sell_out'], $cur) }}</span>
+                            <span>Received in — {{ $sellThrough['sell_in_units'] ? number_format($sellThrough['sell_in_units']).' units' : 'no aligned window' }}</span>
+                            <span>Sold out — {{ number_format($sellThrough['sell_out_units']) }} units · {{ Currency::plain($sellThrough['sell_out_revenue'], $sellThrough['currency']) }}</span>
                         </div>
-                        <div class="track"><i style="width:{{ min(100, $sellThrough['pct']) }}%"></i></div>
+                        <div class="track">
+                            @if ($sellThrough['pct'] !== null)
+                                <i style="width:{{ min(100, $sellThrough['pct']) }}%"></i>
+                            @endif
+                        </div>
                         <div class="t" style="color:var(--faint)">
-                            <span>Healthy when sell-out keeps pace with sell-in</span>
-                            <span>{{ Currency::plain($sellThrough['sitting'], $cur) }} sitting at the channel</span>
+                            <span>Healthy when sell-out keeps pace with what the channel took in</span>
+                            @if ($sellThrough['sitting'] > 0)
+                                <span>{{ number_format($sellThrough['sitting']) }} units sitting at the channel</span>
+                            @endif
                         </div>
                     </div>
                 </div>
+
+                {{-- Per channel, because the three answer this question very differently
+                     and one blended figure would hide which is which (§1). --}}
+                <div class="scroll-x" style="margin-top:14px">
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th>Channel</th>
+                                <th class="num">Sold out</th>
+                                <th class="num">Revenue</th>
+                                <th class="num">Received in</th>
+                                <th>Sell-through</th>
+                                <th>Window</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($sellThrough['channels'] as $c)
+                                <tr>
+                                    <td style="font-weight:650">{{ $c['channel']->label() }}</td>
+                                    <td class="num">{{ number_format($c['sell_out_units']) }}</td>
+                                    <td class="num">{{ Currency::plain($c['sell_out_revenue'], $c['currency']) }}</td>
+                                    <td class="num">
+                                        {{ $c['sell_through_denominator'] === null ? '—' : number_format($c['sell_through_denominator']) }}
+                                    </td>
+                                    <td>
+                                        @if ($c['sell_through_pct'] !== null)
+                                            <x-mini-bar :pct="min(100, $c['sell_through_pct'])" :target="100" />
+                                            {{ $c['sell_through_pct'] }}%
+                                        @else
+                                            <span style="color:var(--faint)">not comparable</span>
+                                        @endif
+                                    </td>
+                                    <td style="font-size:11px;color:var(--muted)">
+                                        {{ $c['sell_out_days'] ? $c['sell_out_days'].' days' : '—' }}
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                {{-- Why a channel has no percentage. This is the whole point: an absent
+                     ratio with a reason is useful, an invented one is dangerous. --}}
+                @foreach ($sellThrough['not_comparable'] as $c)
+                    @if ($c['sell_through_note'])
+                        <div class="note" style="margin-top:10px">
+                            <b>{{ $c['channel']->label() }} — no sell-through figure.</b>
+                            {{ $c['sell_through_note'] }}
+                        </div>
+                    @endif
+                @endforeach
             @else
                 {{-- Honest empty state. The panel keeps its shape so the screen does not
                      jump when M9 fills it, but nothing is invented in the meantime. --}}
@@ -120,8 +232,8 @@
                         </div>
                     </div>
                 </div>
-                <x-empty title="Sell-out is not ingested yet"
-                         note="Sell-through compares what we shipped to a channel against what its customers actually bought. The sell-in half is live above. The sell-out half comes from the Amazon sell-out report, which arrives at M9 — until then this stays blank rather than showing a ratio nobody could act on." />
+                <x-empty title="No sell-out has been uploaded yet"
+                         note="Sell-through compares what a channel took in against what its customers actually bought. The sell-in half is live above. Upload the Amazon sell-out report, the DFS orders or the Noon sell-out workbook and this fills in — until then it stays blank rather than showing a ratio nobody could act on." />
             @endif
         </x-panel>
 
@@ -145,7 +257,90 @@
         </x-panel>
     </section>
 
+    {{-- Stock and how long it lasts (§P/§R, M9). --}}
     <section class="row a">
+        <x-panel title="Stock and days of cover"
+                 sub="What each channel is holding, and how long it lasts at the rate it is selling"
+                 link="Watchlists →" :linkHref="route('products.index').'#watchlists'">
+            @if ($cover)
+                <div class="scroll-x">
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th>Channel</th>
+                                <th class="num">Stock on hand</th>
+                                <th class="num">Selling</th>
+                                <th class="num">Days of cover</th>
+                                <th class="num">Aged 90+</th>
+                                <th>As at</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($cover['channels'] as $c)
+                                <tr>
+                                    <td style="font-weight:650">
+                                        {{ $c['channel']->label() }}
+                                        @if ($c['stock_is_provisional'])
+                                            {{-- The DFS label, carried from the data itself. --}}
+                                            <span class="tag amber" title="{{ $c['stock_note'] }}">provisional</span>
+                                        @endif
+                                    </td>
+                                    <td class="num">{{ number_format($c['soh_units']) }}</td>
+                                    <td class="num">
+                                        {{ $c['daily_run_rate'] === null ? '—' : number_format($c['daily_run_rate'], 1).' /day' }}
+                                    </td>
+                                    <td class="num">
+                                        @if ($c['cover_days'] === null)
+                                            <span style="color:var(--faint)">—</span>
+                                        @else
+                                            <span class="mg {{ $c['cover_days'] >= $cover['thresholds']['overstock_days'] || $c['cover_days'] < $cover['thresholds']['stockout_days'] ? 'neg' : 'pos' }}">
+                                                {{ number_format($c['cover_days'], 1) }}
+                                            </span>
+                                        @endif
+                                    </td>
+                                    <td class="num">
+                                        {{ $c['aged_90_units'] === null ? '—' : number_format($c['aged_90_units']) }}
+                                    </td>
+                                    <td style="font-size:11px;color:var(--muted)">
+                                        {{ $c['soh_as_at'] ? \Illuminate\Support\Carbon::parse($c['soh_as_at'])->format('j M Y') : '—' }}
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="display:flex;gap:22px;margin-top:14px;flex-wrap:wrap">
+                    <div>
+                        <div style="font-size:11px;color:var(--faint)">Overstocking</div>
+                        <div style="font-size:20px;font-weight:700;color:var(--bad)">{{ number_format($cover['overstocking']) }}</div>
+                        <div style="font-size:11px;color:var(--muted)">{{ number_format($cover['overstocking_units']) }} units tied up</div>
+                    </div>
+                    <div>
+                        <div style="font-size:11px;color:var(--faint)">Under-supplying</div>
+                        <div style="font-size:20px;font-weight:700;color:var(--amber-2)">{{ number_format($cover['under_supplying']) }}</div>
+                        <div style="font-size:11px;color:var(--muted)">under {{ $cover['thresholds']['stockout_days'] }} days of cover</div>
+                    </div>
+                    <div>
+                        <div style="font-size:11px;color:var(--faint)">Aged 90+ days</div>
+                        <div style="font-size:20px;font-weight:700">{{ number_format($cover['aged_90_units']) }}</div>
+                        <div style="font-size:11px;color:var(--muted)">units Amazon says have not moved</div>
+                    </div>
+                </div>
+
+                @if ($cover['provisional'])
+                    <div class="note warn" style="margin-top:12px">
+                        <b>DFS stock is provisional.</b> It is Amazon's view of our direct-fulfilment
+                        stock rather than our own warehouse system, so DFS days of cover is an
+                        indication only. The real position arrives with the in-house-tool link.
+                    </div>
+                @endif
+            @else
+                <x-empty title="No stock report has been uploaded yet"
+                         note="Days of cover is stock on hand divided by how fast it is selling. The selling half is live; upload the Amazon inventory report, the DFS inventory CSV or the Noon workbook and this fills in." />
+            @endif
+        </x-panel>
+
         {{-- Fulfilment centres: where the volume is and how well each one is served. --}}
         <x-panel title="Fulfilment centres" sub="PO value and fill rate by FC"
                  link="All deliveries →" :linkHref="route('deliveries.index')">

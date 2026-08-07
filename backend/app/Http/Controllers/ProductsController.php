@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\PoLine;
 use App\Models\Product;
-use App\Models\SelloutRow;
+use App\Services\Analytics\SellThroughEngine;
 use App\Services\Margin\SkuMargin;
 use App\Services\Reporting\CsvExport;
 use App\Services\Reporting\FilterSet;
@@ -23,11 +23,11 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * This screen is organised by the PRODUCT, which is how sales and marketing think, and
  * it is where brand and category rollups live now that the catalog is loaded.
  *
- * WHAT IS HONEST HERE TODAY. Sell-through needs sell-out - what the channel's customers
- * actually bought - and that report is not ingested until M9. So the sell-in half is
- * real and the sell-out half is blank and says why. The quadrant plots what we can
- * actually measure: how much of a SKU we ship against how reliably we fill it. When
- * sell-out lands, the same quadrant gains the axis the brief asks for.
+ * SINCE M9 BOTH HALVES ARE REAL. Sell-through needs sell-out - what the channel's
+ * customers actually bought - and all three channels now report it, so the watchlists,
+ * days of cover and the velocity-against-stock quadrant the brief asked for are live.
+ * The screen still degrades honestly: with no sell-out uploaded it falls back to the
+ * volume-against-fill-rate plot and says which one you are looking at.
  *
  * Nothing here is a new business rule. Every figure is a sum of the engine's own cached
  * columns, grouped a different way.
@@ -51,6 +51,18 @@ class ProductsController extends Controller
         $skus = $this->skuRows($filters);
 
         /*
+         * M9. The sell-out half of this screen, which was deliberately blank until now.
+         *
+         * Computed ONCE and handed to the watchlists, the quadrant and the channel table
+         * alike, because all three are different readings of the same rows and running
+         * three queries would let them disagree.
+         */
+        $sellThrough = new SellThroughEngine($filters);
+        $velocity = $sellThrough->hasSellOut() || $sellThrough->hasStock()
+            ? $sellThrough->skuRows()
+            : collect();
+
+        /*
          * The M7 inline unlock (§Profitability).
          *
          * Same rule as PO detail: the PIN is not on this route, because §O opens Products
@@ -70,8 +82,16 @@ class ProductsController extends Controller
             'skus' => $skus,
             // The labelled quadrant (§8). Points carry their product name so a dot is
             // never a mystery - the brief is explicit that abstract charts are out.
-            'quadrant' => $this->quadrant($skus),
-            'sellOutLoaded' => SelloutRow::count() > 0,
+            // Since M9 its axes are velocity against stock; before any sell-out is
+            // uploaded it falls back to the volume-against-fill-rate plot M5 built.
+            'quadrant' => $velocity->isNotEmpty()
+                ? $this->velocityQuadrant($velocity)
+                : $this->quadrant($skus),
+            'velocity' => $velocity,
+            'channels' => $sellThrough->byChannel(),
+            'watchlists' => $velocity->isEmpty() ? null : $sellThrough->watchlists($velocity),
+            'sellOutLoaded' => $sellThrough->hasSellOut(),
+            'stockLoaded' => $sellThrough->hasStock(),
             'catalog' => [
                 'products' => Product::count(),
                 'brands' => Product::whereNotNull('brand')->distinct()->count('brand'),
@@ -170,13 +190,16 @@ class ProductsController extends Controller
             ->values();
 
         if ($points->isEmpty()) {
-            return ['points' => collect(), 'max_units' => 0, 'target' => 0];
+            return ['points' => collect(), 'max_units' => 0, 'target' => 0, 'mode' => 'fill_rate'];
         }
 
         $maxUnits = max(1, $points->max('accepted'));
         $target = (float) config('operon.benchmarks.fill_rate_target');
 
         return [
+            // Which plot this is. The view draws two quite different charts and must not
+            // have to guess from the shape of the data which one it was handed.
+            'mode' => 'fill_rate',
             'points' => $points->map(fn ($s) => $s + [
                 // Position as a percentage of the plot area; the view only draws.
                 'x' => round($s['accepted'] / $maxUnits * 100, 2),
@@ -185,6 +208,62 @@ class ProductsController extends Controller
             ]),
             'max_units' => $maxUnits,
             'target' => $target,
+        ];
+    }
+
+    /**
+     * The M9 quadrant: HOW FAST IT SELLS against HOW MUCH OF IT WE ARE SITTING ON.
+     *
+     * This is the axis DESIGN_BRIEF §8 asked for and M5 had to leave blank, because the
+     * sell-out half of it did not exist until now. The corners each name a real
+     * situation, and the labels on screen say which is which rather than leaving a
+     * reader to work out what "top right" means:
+     *
+     *      ↑ stock          SITTING ON IT              OVERSTOCKED ON A GOOD SELLER
+     *        held           slow, and a lot of it      fast, but far too much cover
+     *
+     *                       QUIET                      RUNNING HOT
+     *                       slow and light — fine      fast and thin — reorder now
+     *                                                  → selling faster ─────────→
+     *
+     * Both axes are plotted on the SHARE OF THE MAXIMUM in view rather than on an
+     * absolute scale, because a catalog where one SKU sells 7,000 units and the next
+     * sells 30 would otherwise put every dot on the left edge. The absolute figures ride
+     * on each point so the tooltip and the labels can state them.
+     *
+     * @return array<string, mixed>
+     */
+    private function velocityQuadrant($velocity): array
+    {
+        $points = $velocity
+            // A dot needs both axes to mean anything. A SKU with no stock figure has no
+            // vertical position, and one with no run rate has no horizontal one.
+            ->filter(fn (array $r) => $r['soh_units'] !== null && $r['run_rate'] !== null)
+            ->sortByDesc(fn (array $r) => $r['soh_units'])
+            ->take(70)
+            ->values();
+
+        if ($points->isEmpty()) {
+            return ['points' => collect(), 'max_units' => 0, 'target' => 0, 'mode' => 'velocity'];
+        }
+
+        $maxStock = max(1, (int) $points->max('soh_units'));
+        $maxRate = max(0.0001, (float) $points->max('run_rate'));
+        $limits = config('operon.cover');
+
+        return [
+            'mode' => 'velocity',
+            'points' => $points->map(fn (array $r) => $r + [
+                'x' => round($r['run_rate'] / $maxRate * 100, 2),
+                'y' => round(($r['soh_units'] ?? 0) / $maxStock * 100, 2),
+                // Red is "somebody should do something about this today".
+                'risk' => $r['stockout_reason'] !== null,
+                'warn' => $r['overstock_reason'] !== null,
+            ]),
+            'max_units' => $maxStock,
+            'max_rate' => round($maxRate, 2),
+            'target' => 0,
+            'thresholds' => $limits,
         ];
     }
 

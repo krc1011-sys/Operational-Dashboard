@@ -19,10 +19,13 @@ enum UploadType: string
     case AmazonFinalPacking = 'amazon_final_packing';
     case AmazonCancellations = 'amazon_cancellations';
     case AmazonSellout = 'amazon_sellout';
+    case AmazonInventory = 'amazon_inventory';
     case AmazonDfs = 'amazon_dfs';
+    case AmazonDfsInventory = 'amazon_dfs_inventory';
     case NoonPo = 'noon_po';
     case NoonInterimPicking = 'noon_interim_picking';
     case NoonFinalPicking = 'noon_final_picking';
+    case NoonSellout = 'noon_sellout';
     case MasterSheet = 'master_sheet';
 
     public function label(): string
@@ -33,11 +36,14 @@ enum UploadType: string
             self::AmazonInterimPacking => 'Amazon — Interim Packing List',
             self::AmazonFinalPacking => 'Amazon — Final Packing List',
             self::AmazonCancellations => 'Amazon — Cancellations',
-            self::AmazonSellout => 'Amazon — Sell-out report',
-            self::AmazonDfs => 'Amazon — DFS orders',
+            self::AmazonSellout => 'Amazon — Sell-out report (Sales by ASIN)',
+            self::AmazonInventory => 'Amazon — Inventory report (Inventory by ASIN)',
+            self::AmazonDfs => 'Amazon — DFS sell-out (orders)',
+            self::AmazonDfsInventory => 'Amazon — DFS inventory (bulk CSV)',
             self::NoonPo => 'Noon — Purchase Order',
             self::NoonInterimPicking => 'Noon — Interim Picking List',
             self::NoonFinalPicking => 'Noon — Final Picking List',
+            self::NoonSellout => 'Noon — Sell-out & Stock on Hand',
             self::MasterSheet => 'Master Products Sheet',
         };
     }
@@ -45,7 +51,8 @@ enum UploadType: string
     public function marketplace(): ?Marketplace
     {
         return match ($this) {
-            self::NoonPo, self::NoonInterimPicking, self::NoonFinalPicking => Marketplace::Noon,
+            self::NoonPo, self::NoonInterimPicking, self::NoonFinalPicking,
+            self::NoonSellout => Marketplace::Noon,
             self::MasterSheet => null, // cross-marketplace catalog
             default => Marketplace::Amazon,
         };
@@ -54,8 +61,9 @@ enum UploadType: string
     public function channel(): ?Channel
     {
         return match ($this) {
-            self::AmazonDfs => Channel::AmazonDfs,
-            self::NoonPo, self::NoonInterimPicking, self::NoonFinalPicking => Channel::NoonRetail,
+            self::AmazonDfs, self::AmazonDfsInventory => Channel::AmazonDfs,
+            self::NoonPo, self::NoonInterimPicking, self::NoonFinalPicking,
+            self::NoonSellout => Channel::NoonRetail,
             self::MasterSheet => null,
             default => Channel::AmazonRetail,
         };
@@ -80,8 +88,12 @@ enum UploadType: string
             self::AmazonCancellations => 'upload-cancelled-items',
             self::AmazonSellout => 'upload-sellout',
             self::AmazonDfs => 'upload-dfs',
+            // Stock is its own right: it is the file that says what we are sitting on,
+            // and it arrives from a different place to the sales feeds (§P, §R, M9).
+            self::AmazonInventory, self::AmazonDfsInventory => 'upload-inventory',
             self::NoonPo => 'upload-noon-po',
             self::NoonInterimPicking, self::NoonFinalPicking => 'upload-noon-picking-list',
+            self::NoonSellout => 'upload-noon-sellout',
             self::MasterSheet => 'upload-master-sku',
         };
     }
@@ -97,6 +109,13 @@ enum UploadType: string
         return match ($this) {
             self::AmazonDfs => 7,
             self::AmazonSellout => 7,
+            self::NoonSellout => 7,
+            /*
+             * Stock goes stale faster than sales do. A sell-out report a week old is
+             * history and still true; a stock figure a week old is a wrong answer to
+             * "can we cover the next order", which is the question it exists to answer.
+             */
+            self::AmazonInventory, self::AmazonDfsInventory => 7,
             default => null,
         };
     }

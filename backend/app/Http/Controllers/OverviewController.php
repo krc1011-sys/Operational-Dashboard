@@ -62,6 +62,8 @@ class OverviewController extends Controller
             'fcs' => $panels->fulfilmentCentres(),
             'channels' => $panels->channelMix(),
             'sellThrough' => $panels->sellThrough(),
+            // Stock and how long it lasts (M9). Null until a stock report is uploaded.
+            'cover' => $panels->cover(),
             'alerts' => $panels->alerts(),
             'inFlight' => $panels->inFlight(),
             'coverage' => $panels->catalogCoverage(),

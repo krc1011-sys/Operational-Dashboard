@@ -45,6 +45,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'view-cancelled-items',         // Cancellations + deliver-anyway flags (§G)
             'view-analytics',               // SKU analytics / forecast (Phase 2-3)
             'view-sellout',                 // Amazon sell-out / sell-through (§P)
+            'view-inventory',               // Stock on hand, velocity, days of cover (M9)
             'view-dfs',                     // Amazon DFS orders (§R)
             'view-master',                  // Master product catalog, NON-money columns (§S)
         ],
@@ -85,8 +86,10 @@ class RolesAndPermissionsSeeder extends Seeder
             'upload-master-sku',            // Master Products Sheet bulk load
             'upload-sellout',               // Amazon sell-out report
             'upload-dfs',                   // Amazon DFS orders
+            'upload-inventory',             // Amazon + DFS stock on hand (M9)
             'upload-noon-po',               // Noon PO ("Packing List" tab)
             'upload-noon-picking-list',     // Noon interim + final ("Picking List" tab)
+            'upload-noon-sellout',          // Noon sell-out + SOH workbook (M9)
         ],
     ];
 
@@ -99,15 +102,15 @@ class RolesAndPermissionsSeeder extends Seeder
         'Finance' => [
             'view-overview', 'view-po-status', 'view-fulfillment', 'view-pending',
             'view-shipments', 'view-committed-deliveries', 'view-cancelled-items',
-            'view-analytics', 'view-sellout', 'view-dfs', 'view-master',
+            'view-analytics', 'view-sellout', 'view-inventory', 'view-dfs', 'view-master',
             // Finance sees all three money lenses.
             'view-margin', 'view-sku-cost', 'view-sku-price',
         ],
 
         'Sales' => [
             'view-overview', 'view-po-status', 'view-pending',
-            'view-committed-deliveries', 'view-analytics', 'view-sellout', 'view-dfs',
-            'view-master',
+            'view-committed-deliveries', 'view-analytics', 'view-sellout', 'view-inventory',
+            'view-dfs', 'view-master',
             // Sell price only — no cost, no margin.
             'view-sku-price',
         ],
@@ -116,7 +119,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'view-overview', 'view-po-status', 'manage-po-status',
             'view-fulfillment', 'manage-fulfillment', 'view-pending',
             'view-shipments', 'view-committed-deliveries', 'view-cancelled-items',
-            'view-analytics', 'view-sellout', 'view-dfs', 'view-master',
+            'view-analytics', 'view-sellout', 'view-inventory', 'view-dfs', 'view-master',
             // Buy price only — no sell price, no margin.
             'view-sku-cost',
             'manage-delivery-batches', 'manage-email-assistant',
@@ -127,6 +130,8 @@ class RolesAndPermissionsSeeder extends Seeder
         'Warehouse' => [
             'view-overview', 'view-po-status', 'view-fulfillment', 'manage-fulfillment',
             'view-pending', 'view-shipments', 'view-cancelled-items', 'view-master',
+            // Stock on hand and days of cover: the warehouse's own question (M9).
+            'view-inventory',
             // None of the three §O money lenses: no buy price, no sell price, no margin.
             // Order value (units x unit cost) is not one of those lenses and is open to
             // every role - see User::canSeeOrderValue().
