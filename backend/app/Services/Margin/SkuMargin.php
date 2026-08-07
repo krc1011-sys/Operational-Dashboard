@@ -51,7 +51,9 @@ use Illuminate\Support\Collection;
 class SkuMargin
 {
     public const AMAZON = 'amazon';
+
     public const NOON = 'noon';
+
     public const BOTH = 'both';
 
     /** Weighted by units we really shipped. */
@@ -222,7 +224,7 @@ class SkuMargin
      * way to guarantee that is for there to be one implementation of it.
      *
      * @param  array<int, int>  $productIds
-     * @return Collection<int, array<string, mixed>>  keyed by product id
+     * @return Collection<int, array<string, mixed>> keyed by product id
      */
     public static function blendsForProducts(array $productIds, ?string $selector = null): Collection
     {

@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Enums\CancellationResolution;
-use App\Enums\Marketplace;
 use App\Enums\SourceFileStatus;
 use App\Enums\Stage;
 use App\Enums\UploadType;

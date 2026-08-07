@@ -25,8 +25,11 @@ class PoLine extends Model
 
     /** Line states from §F. */
     public const STATE_CANCELLED = 'cancelled';
+
     public const STATE_NOT_BOOKED = 'not_booked';
+
     public const STATE_SCHEDULED = 'scheduled';
+
     public const STATE_DISPATCHED = 'dispatched';
 
     protected function casts(): array

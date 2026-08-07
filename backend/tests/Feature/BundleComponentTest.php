@@ -7,6 +7,7 @@ use App\Models\ProductChannelEconomics;
 use App\Models\User;
 use App\Services\Margin\NetMarginEngine;
 use App\Services\Margin\SkuMargin;
+use App\Services\Reporting\FilterSet;
 use App\Support\MoneyGate;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -138,7 +139,7 @@ class BundleComponentTest extends TestCase
         $response->assertSee('BD00000001');
         $response->assertSee('losing money');
 
-        $rows = SkuMargin::rows(SkuMargin::BOTH, new \App\Services\Reporting\FilterSet, null);
+        $rows = SkuMargin::rows(SkuMargin::BOTH, new FilterSet, null);
 
         $losing = $rows->filter(fn ($r) => $r['profitable'] === false)->pluck('code');
 

@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /**
  * A purchase order header (§C, §L).
@@ -94,7 +95,7 @@ class PurchaseOrder extends Model
      * linked ISAs"). Interim deliveries are excluded on purpose - being booked is not
      * being shipped.
      *
-     * @return \Illuminate\Support\Collection<int, Delivery>
+     * @return Collection<int, Delivery>
      */
     public function shippedDeliveries()
     {
@@ -216,7 +217,7 @@ class PurchaseOrder extends Model
      * moment its final was uploaded stands in - we know it shipped, just not precisely
      * when, and that is far better than dropping the PO out of the turnaround figures.
      *
-     * @return \Illuminate\Support\Collection<int, Carbon>
+     * @return Collection<int, Carbon>
      */
     private function shipmentDates()
     {

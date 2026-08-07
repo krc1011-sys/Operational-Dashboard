@@ -6,6 +6,7 @@ use App\Enums\UploadType;
 use App\Services\Spreadsheet\CellValue;
 use App\Services\Spreadsheet\HeaderMap;
 use App\Services\Spreadsheet\Workbook;
+use App\Services\Upload\FileTypeRegistry;
 use App\Services\Upload\UploadValidator;
 use Tests\Support\FakeWorkbook;
 use Tests\TestCase;
@@ -247,7 +248,7 @@ class UploadValidationTest extends TestCase
     public function test_every_upload_type_has_a_definition(): void
     {
         foreach (UploadType::cases() as $type) {
-            $definition = \App\Services\Upload\FileTypeRegistry::for($type);
+            $definition = FileTypeRegistry::for($type);
 
             $this->assertNotEmpty($definition->requiredHeaders, "{$type->value} has no required headers.");
             $this->assertNotEmpty($definition->extensions, "{$type->value} has no allowed extensions.");

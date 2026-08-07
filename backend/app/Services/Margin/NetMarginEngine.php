@@ -187,7 +187,7 @@ class NetMarginEngine
      * When the figure arrives in the sheet it appears on the line that is already there,
      * with no code change.
      *
-     * @return array<string, float>|null  null when there is no product cost at all
+     * @return array<string, float>|null null when there is no product cost at all
      */
     public static function costStack(ProductChannelEconomics $e): ?array
     {

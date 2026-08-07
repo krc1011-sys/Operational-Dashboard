@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Services\Margin\NetMarginEngine;
 use App\Services\Margin\ProfitAndLoss;
@@ -35,6 +36,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class MoneyController extends Controller
 {
     public const VIEW_PO = 'po';
+
     public const VIEW_SKU = 'sku';
 
     public function index(Request $request): View|RedirectResponse|StreamedResponse
@@ -259,7 +261,7 @@ class MoneyController extends Controller
                     $row['blend']['cogs'],
                     // Cost travels; the margin does not, for a price never charged.
                     $row['bundle_component'] ? null : $row['blend']['profit'],
-                    $row['bundle_component'] ? \App\Models\Product::BUNDLE_MARGIN_LABEL : $row['blend']['margin_pct'],
+                    $row['bundle_component'] ? Product::BUNDLE_MARGIN_LABEL : $row['blend']['margin_pct'],
                     $row['bundle_component']
                         ? 'bundle component — excluded from margin rankings'
                         : ($row['blend']['weight_basis'] === SkuMargin::BASIS_SHIPPED

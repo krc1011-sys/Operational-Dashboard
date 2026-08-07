@@ -14,7 +14,7 @@ use App\Services\Spreadsheet\HeaderMap;
 class ValidationResult
 {
     /**
-     * @param  string[]  $errors    fatal - nothing is imported
+     * @param  string[]  $errors  fatal - nothing is imported
      * @param  string[]  $warnings  imported, but worth knowing
      */
     private function __construct(

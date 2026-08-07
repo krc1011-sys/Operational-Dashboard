@@ -42,8 +42,11 @@ class ProfitAndLoss
 
     /** Line kinds, for the view: how each row is weighted and coloured. */
     public const REVENUE = 'revenue';
+
     public const DEDUCTION = 'deduction';
+
     public const SUBTOTAL = 'subtotal';
+
     public const RESULT = 'result';
 
     /** What each cost-stack key is called on screen, in P&L order. */

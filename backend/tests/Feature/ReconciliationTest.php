@@ -11,6 +11,7 @@ use App\Models\PoLine;
 use App\Models\PurchaseOrder;
 use App\Models\SourceFile;
 use App\Models\User;
+use App\Services\Import\Reconciler;
 use App\Services\Upload\UploadService;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -385,7 +386,7 @@ class ReconciliationTest extends TestCase
         $before = PurchaseOrder::sole()->only(['first_shipped_on', 'completed_on', 'days_to_complete', 'is_complete'])
             + PoLine::sole()->only(['qty_shipped', 'qty_net_accepted', 'fill_rate_pct', 'line_state']);
 
-        app(\App\Services\Import\Reconciler::class)
+        app(Reconciler::class)
             ->recomputePoLinesFor(Marketplace::Amazon, ['774FV9FB']);
 
         $after = PurchaseOrder::sole()->only(['first_shipped_on', 'completed_on', 'days_to_complete', 'is_complete'])

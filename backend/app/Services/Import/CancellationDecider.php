@@ -31,7 +31,7 @@ class CancellationDecider
     /**
      * What can be netted right now, without asking anybody.
      *
-     * @return array{0: CancellationResolution, 1: int, 2: int}  resolution, honoured, delivered-anyway
+     * @return array{0: CancellationResolution, 1: int, 2: int} resolution, honoured, delivered-anyway
      */
     public function decide(?PoLine $poLine, int $cancelled): array
     {

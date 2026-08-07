@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\MasterAnomaly;
 use App\Models\PoLine;
 use App\Models\Product;
 use App\Models\ProductChannelEconomics;
@@ -578,11 +579,11 @@ class MoneyViewsTest extends TestCase
         $product = $this->product(['company_product_code' => 'BD62972744']);
         $this->economics($product, 'amazon_retail');
 
-        \App\Models\MasterAnomaly::create([
+        MasterAnomaly::create([
             'product_id' => $product->id,
             'company_product_code' => $product->company_product_code,
-            'kind' => \App\Models\MasterAnomaly::KIND_CODE_COVERS_TWO_PRODUCTS,
-            'severity' => \App\Models\MasterAnomaly::SEVERITY_REVIEW,
+            'kind' => MasterAnomaly::KIND_CODE_COVERS_TWO_PRODUCTS,
+            'severity' => MasterAnomaly::SEVERITY_REVIEW,
             'message' => 'One code covering two products.',
         ]);
 

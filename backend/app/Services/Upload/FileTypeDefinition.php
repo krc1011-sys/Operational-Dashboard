@@ -14,9 +14,9 @@ use App\Enums\UploadType;
 class FileTypeDefinition
 {
     /**
-     * @param  string[]  $extensions          allowed file extensions
-     * @param  string[]  $sheetCandidates     acceptable sheet names; empty = use the first sheet
-     * @param  int  $headerRowHint            where the header usually is
+     * @param  string[]  $extensions  allowed file extensions
+     * @param  string[]  $sheetCandidates  acceptable sheet names; empty = use the first sheet
+     * @param  int  $headerRowHint  where the header usually is
      * @param  array<string, string[]>  $requiredHeaders  label => aliases, all must be present
      * @param  array<string, string[]>  $optionalHeaders  label => aliases, nice to have
      */
