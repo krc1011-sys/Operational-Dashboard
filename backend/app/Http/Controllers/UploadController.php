@@ -111,7 +111,17 @@ class UploadController extends Controller
         abort_unless($request->user()->can($sourceFile->upload_type->permission()), 403);
         abort_if(blank($sourceFile->stored_path), 404);
 
-        return Storage::disk('local')->download($sourceFile->stored_path, $sourceFile->original_filename);
+        $disk = Storage::disk(UploadService::disk());
+
+        /*
+         * The audit row outlives the file. On Laravel Cloud the container filesystem is
+         * reset by every deployment, so a source file uploaded before the last deploy
+         * still has its record and its imported data - what it no longer has is the
+         * original workbook. Say so with a 404 rather than a 500.
+         */
+        abort_unless($disk->exists($sourceFile->stored_path), 404, 'The original file is no longer stored. Its imported data is unaffected.');
+
+        return $disk->download($sourceFile->stored_path, $sourceFile->original_filename);
     }
 
     /**

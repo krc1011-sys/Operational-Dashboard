@@ -70,13 +70,50 @@ class CellValue
                 : (string) $value;
         }
 
-        $text = trim((string) $value);
+        $text = self::decodeExcelEscapes(trim((string) $value));
 
         // The master sheet is known to carry trailing whitespace and newlines in
         // ASINs; strip anything invisible rather than creating a near-duplicate (§S).
         $text = preg_replace('/[\x{00A0}\s]+/u', ' ', $text) ?? $text;
 
         return trim($text) === '' ? null : trim($text);
+    }
+
+    /**
+     * Turn Excel's `_xHHHH_` escapes back into the characters they stand for.
+     *
+     * Excel cannot put a raw control character in a shared string, so it writes the
+     * code point instead: a line break inside a cell becomes the literal seven
+     * characters `_x000D_`. Those arrive here as text and are invisible to the
+     * whitespace rule above, which only knows about real whitespace.
+     *
+     * One product description in the master sheet carries fifty-two of them in a row.
+     * Left alone that is a 700-character name for a kitchen towel - which SQLite
+     * stores without complaint and strict MySQL rejects outright, failing not just
+     * the row but the entire import. Decoded, the escapes become carriage returns,
+     * the rule above collapses them to a single space, and the name is the ~130
+     * characters a person would actually read.
+     *
+     * `_x005F_` is Excel's own escape for a literal underscore that would otherwise
+     * start an escape, so it is decoded first and its output left alone.
+     */
+    private static function decodeExcelEscapes(string $text): string
+    {
+        if (! str_contains($text, '_x')) {
+            return $text;
+        }
+
+        return preg_replace_callback(
+            '/_x(005F|[0-9A-Fa-f]{4})_/',
+            function (array $m): string {
+                $code = hexdec($m[1]);
+
+                // Anything outside the Basic Multilingual Plane's usable range is more
+                // likely a coincidence in the text than an escape - leave it as it was.
+                return $code > 0x10FFFF ? $m[0] : mb_chr($code, 'UTF-8');
+            },
+            $text
+        ) ?? $text;
     }
 
     public static function asInt(mixed $value): ?int

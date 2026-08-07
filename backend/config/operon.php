@@ -28,6 +28,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | The first Admin  (deployment bootstrap — see DEPLOY.md)
+    |--------------------------------------------------------------------------
+    |
+    | There is no way into OperON without an account and no way to create the first
+    | one from inside the app, so a fresh environment is handed exactly one login
+    | from outside. `operon:bootstrap-admin` reads these; `db:seed` calls it.
+    |
+    | They are read HERE rather than with env() in the command, because a deployed
+    | app runs on a cached config and no .env file, and env() outside a config file
+    | is the one thing that arrangement does not promise to answer.
+    |
+    | Empty is a valid state: it means "no first Admin to create", which is the
+    | normal case for local development. It is never a default account.
+    |
+    */
+    'admin' => [
+        'email' => env('ADMIN_EMAIL'),
+        'password' => env('ADMIN_PASSWORD'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Money / margin PIN  (blueprint §S — "money = ADMIN ONLY, behind PIN")
     |--------------------------------------------------------------------------
     |
@@ -36,8 +58,14 @@ return [
     |
     | CHANGE THIS in your .env file before real data goes in.
     |
+    | Two names, one setting. MONEY_PIN is the name to set on Laravel Cloud (it sits
+    | alongside ADMIN_EMAIL / ADMIN_PASSWORD, which are also unprefixed, so the three
+    | secrets that bootstrap an environment read as one group). OPERON_MONEY_PIN is
+    | the original name and still works, so existing local .env files keep running.
+    | If both are set, MONEY_PIN wins.
+    |
     */
-    'money_pin' => env('OPERON_MONEY_PIN', '1234'),
+    'money_pin' => env('MONEY_PIN') ?: env('OPERON_MONEY_PIN', '1234'),
 
     /*
      | How long a verified PIN stays valid, in minutes of IDLE time.
@@ -52,6 +80,26 @@ return [
 
     // How many wrong PIN attempts are allowed before a temporary lockout.
     'money_pin_max_attempts' => (int) env('OPERON_MONEY_PIN_MAX_ATTEMPTS', 5),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Where raw uploaded files are kept
+    |--------------------------------------------------------------------------
+    |
+    | The PARSED records live in the database and are the source of truth. This disk
+    | holds the original workbook alongside them, for the one job the database cannot
+    | do: re-download exactly what was uploaded when auditing a rejected file (§J).
+    |
+    | On Laravel Cloud the container filesystem is EPHEMERAL - it is reset by every
+    | deployment - so on 'local' the raw file is a within-deployment convenience and
+    | nothing more. The imported data is unaffected either way.
+    |
+    | To keep the raw files instead, create a Laravel Cloud object storage bucket and
+    | set OPERON_UPLOADS_DISK=s3. Nothing else changes: the importers are handed a
+    | local temp copy of the file whichever disk it came from.
+    |
+    */
+    'uploads_disk' => env('OPERON_UPLOADS_DISK', 'local'),
 
     /*
     |--------------------------------------------------------------------------

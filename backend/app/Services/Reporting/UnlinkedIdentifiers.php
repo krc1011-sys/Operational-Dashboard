@@ -82,8 +82,11 @@ class UnlinkedIdentifiers
         foreach (self::sources() as [$model, $label, $qtyColumn, $nameColumn]) {
             $rows = $model::query()
                 ->whereNull('product_id')
+                // `rows_count`, not `rows`: ROWS is a reserved word in MySQL 8 (window
+                // functions), so the unquoted alias parses on SQLite and is a syntax
+                // error on the managed MySQL this deploys to.
                 ->selectRaw(sprintf(
-                    'marketplace, sku_id, MAX(%s) as title, COALESCE(SUM(%s), 0) as units, COUNT(*) as rows',
+                    'marketplace, sku_id, MAX(%s) as title, COALESCE(SUM(%s), 0) as units, COUNT(*) as rows_count',
                     $nameColumn,
                     $qtyColumn
                 ))
@@ -108,7 +111,7 @@ class UnlinkedIdentifiers
 
                 $found[$key]['title'] ??= $row->title;
                 $found[$key]['title'] = $found[$key]['title'] ?: $row->title;
-                $found[$key]['seen_in'][$label] = (int) $row->rows;
+                $found[$key]['seen_in'][$label] = (int) $row->rows_count;
                 $found[$key]['units'] += (int) $row->units;
             }
         }
